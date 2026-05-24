@@ -8,40 +8,41 @@
   --opaque-button-border-intensity: -8;
   --elevate-1: rgba(0,0,0, .03);
   --elevate-2: rgba(0,0,0, .08);
-  --background: 35 15% 97%;
-  --foreground: 35 15% 12%;
-  --border: 35 12% 88%;
-  --card: 35 15% 95%;
-  --card-foreground: 35 15% 15%;
-  --card-border: 35 12% 90%;
-  --sidebar: 35 15% 93%;
-  --sidebar-foreground: 35 15% 18%;
-  --sidebar-border: 35 12% 86%;
-  --sidebar-primary: 32 85% 45%;
-  --sidebar-primary-foreground: 32 85% 98%;
-  --sidebar-accent: 35 18% 85%;
-  --sidebar-accent-foreground: 35 18% 20%;
-  --sidebar-ring: 32 85% 45%;
-  --popover: 35 15% 91%;
-  --popover-foreground: 35 15% 20%;
-  --popover-border: 35 12% 84%;
-  --primary: 32 85% 45%;
-  --primary-foreground: 32 85% 98%;
-  --secondary: 35 18% 87%;
-  --secondary-foreground: 35 18% 22%;
-  --muted: 35 12% 89%;
-  --muted-foreground: 35 12% 35%;
-  --accent: 35 18% 90%;
-  --accent-foreground: 35 18% 25%;
+  /* Optopia palette: navy #1e3d6c (216 57% 27%), green #45a041 (118 42% 44%), cyan #009fe3 (198 100% 45%) */
+  --background: 216 30% 98%;
+  --foreground: 216 40% 15%;
+  --border: 216 18% 88%;
+  --card: 216 30% 96%;
+  --card-foreground: 216 40% 18%;
+  --card-border: 216 18% 90%;
+  --sidebar: 216 30% 94%;
+  --sidebar-foreground: 216 40% 20%;
+  --sidebar-border: 216 18% 86%;
+  --sidebar-primary: 216 57% 27%;
+  --sidebar-primary-foreground: 216 30% 98%;
+  --sidebar-accent: 198 50% 90%;
+  --sidebar-accent-foreground: 198 90% 22%;
+  --sidebar-ring: 198 100% 45%;
+  --popover: 216 30% 92%;
+  --popover-foreground: 216 40% 20%;
+  --popover-border: 216 18% 84%;
+  --primary: 216 57% 27%;
+  --primary-foreground: 216 30% 98%;
+  --secondary: 216 22% 88%;
+  --secondary-foreground: 216 40% 22%;
+  --muted: 216 18% 90%;
+  --muted-foreground: 216 15% 38%;
+  --accent: 198 60% 92%;
+  --accent-foreground: 198 90% 22%;
   --destructive: 0 75% 42%;
   --destructive-foreground: 0 75% 98%;
-  --input: 35 12% 75%;
-  --ring: 32 85% 45%;
-  --chart-1: 32 85% 38%;
-  --chart-2: 28 75% 42%;
-  --chart-3: 25 65% 45%;
-  --chart-4: 20 60% 48%;
-  --chart-5: 15 55% 50%;
+  --input: 216 18% 75%;
+  --ring: 198 100% 45%;
+  --chart-1: 216 57% 27%;   /* navy */
+  --chart-2: 118 42% 44%;   /* green */
+  --chart-3: 198 100% 45%;  /* cyan */
+  --chart-4: 216 50% 50%;   /* lighter navy */
+  --chart-5: 198 70% 65%;   /* lighter cyan */
   --font-sans: 'DM Sans', sans-serif;
   --font-serif: 'Playfair Display', Georgia, serif;
   --font-mono: monospace;

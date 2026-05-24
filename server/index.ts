@@ -2,6 +2,19 @@ import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { createServer } from "http";
+import { pingDb } from "./db";
+
+process.on("uncaughtException", (err) => {
+  console.error("[uncaughtException]", err?.message ?? err);
+  if (err?.stack) console.error(err.stack);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[unhandledRejection]", reason);
+});
+
+console.log(`[boot] NODE_ENV=${process.env.NODE_ENV}`);
+console.log(`[boot] DATABASE_URL set: ${!!process.env.DATABASE_URL}`);
 
 const app = express();
 const httpServer = createServer(app);
@@ -20,6 +33,17 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  console.log("[boot] pinging database...");
+  try {
+    await pingDb();
+    console.log("[boot] database OK");
+  } catch (err: any) {
+    console.error("[boot] DATABASE PING FAILED:", err?.message ?? err);
+    if (err?.code) console.error("[boot] error code:", err.code);
+    if (err?.stack) console.error(err.stack);
+    process.exit(1);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

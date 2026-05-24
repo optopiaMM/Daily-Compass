@@ -101,7 +101,7 @@ export default function DayView({ date }: DayViewProps) {
                 ))}
                 {completedGoals.map((g) => (
                   <div key={g.id} className="text-sm py-1 flex items-center gap-2 text-muted-foreground">
-                    <Check className="w-3 h-3" />
+                    <Check className="w-3 h-3 text-success" />
                     <span className="line-through">{g.goalText}</span>
                   </div>
                 ))}
@@ -121,7 +121,7 @@ export default function DayView({ date }: DayViewProps) {
               className={`w-full text-left bg-primary/10 border border-primary/30 rounded-lg p-4 flex items-start gap-3 hover-elevate ${mainGoal.completed ? "opacity-60" : ""}`}
               data-testid={`button-toggle-main-${mainGoal.id}`}
             >
-              <Check className={`w-5 h-5 mt-0.5 ${mainGoal.completed ? "text-primary" : "text-muted-foreground/30"}`} />
+              <Check className={`w-5 h-5 mt-0.5 ${mainGoal.completed ? "text-success" : "text-muted-foreground/30"}`} />
               <span className={`flex-1 ${mainGoal.completed ? "line-through" : ""}`}>{mainGoal.text}</span>
             </button>
           </div>
@@ -138,7 +138,7 @@ export default function DayView({ date }: DayViewProps) {
                   className={`w-full text-left bg-card border rounded-lg p-3 flex items-start gap-3 hover-elevate ${p.completed ? "opacity-60" : ""}`}
                   data-testid={`button-toggle-priority-${p.id}`}
                 >
-                  <Check className={`w-4 h-4 mt-0.5 ${p.completed ? "text-primary" : "text-muted-foreground/30"}`} />
+                  <Check className={`w-4 h-4 mt-0.5 ${p.completed ? "text-success" : "text-muted-foreground/30"}`} />
                   <span className="text-xs text-muted-foreground uppercase tracking-wide">P{p.rank ?? ""}</span>
                   <span className={`flex-1 text-sm ${p.completed ? "line-through" : ""}`}>{p.text}</span>
                 </button>
@@ -158,7 +158,7 @@ export default function DayView({ date }: DayViewProps) {
                 className={`w-full text-left bg-card border rounded-lg p-3 flex items-start gap-3 hover-elevate ${t.completed ? "opacity-60" : ""}`}
                 data-testid={`button-toggle-todo-${t.id}`}
               >
-                <Check className={`w-4 h-4 mt-0.5 ${t.completed ? "text-primary" : "text-muted-foreground/30"}`} />
+                <Check className={`w-4 h-4 mt-0.5 ${t.completed ? "text-success" : "text-muted-foreground/30"}`} />
                 <span className={`flex-1 text-sm ${t.completed ? "line-through" : ""}`}>{t.text}</span>
               </button>
             ))}

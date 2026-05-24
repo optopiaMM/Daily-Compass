@@ -36,6 +36,10 @@
   --accent-foreground: 198 90% 22%;
   --destructive: 0 75% 42%;
   --destructive-foreground: 0 75% 98%;
+  --success: 118 42% 44%;          /* Optopia green */
+  --success-foreground: 118 42% 98%;
+  --info: 198 100% 45%;            /* Optopia cyan */
+  --info-foreground: 198 100% 98%;
   --input: 216 18% 75%;
   --ring: 198 100% 45%;
   --chart-1: 216 57% 27%;   /* navy */

@@ -20,7 +20,7 @@ export default function QuoteScreen({ date, onDismiss }: QuoteScreenProps) {
           {quote?.author || fallback.author}
         </p>
         <div className="mt-12 flex flex-col items-center gap-2">
-          <div className="w-8 h-0.5 bg-primary/30 rounded-full" />
+          <div className="w-8 h-0.5 bg-info/60 rounded-full" />
           <p className="text-muted-foreground/60 text-xs">Tap anywhere to continue</p>
         </div>
       </div>

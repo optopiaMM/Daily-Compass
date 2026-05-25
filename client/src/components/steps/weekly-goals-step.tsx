@@ -39,7 +39,7 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
   const { data: previousGoals, isLoading: loadingPrev } = useQuery<WeeklyGoal[]>({
     queryKey: ["/api/weekly-goals", previousWeekStartDate],
   });
-  const { data: ninetyDayGoal } = useQuery<NinetyDayGoal | null>({
+  const { data: ninetyDayGoal, isLoading: loadingNinetyDay } = useQuery<NinetyDayGoal | null>({
     queryKey: ["/api/ninety-day-goal"],
   });
 
@@ -49,7 +49,7 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
   const [newGoalText, setNewGoalText] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (hydrated || loadingCurrent || loadingPrev) return;
+    if (hydrated || loadingCurrent || loadingPrev || loadingNinetyDay) return;
     const initial: Record<string, DraftGoal[]> = {};
     for (const cat of SIX_P_CATEGORIES) initial[cat] = [];
 
@@ -84,7 +84,7 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
     }
 
     setHydrated(true);
-  }, [currentWeekGoals, previousGoals, loadingCurrent, loadingPrev, hydrated, ninetyDayGoal]);
+  }, [currentWeekGoals, previousGoals, loadingCurrent, loadingPrev, loadingNinetyDay, hydrated, ninetyDayGoal]);
 
   const allGoals = useMemo(() => Object.values(draft).flat(), [draft]);
   const totalCount = allGoals.length;
@@ -176,7 +176,7 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
     });
   }
 
-  if (loadingCurrent || loadingPrev) {
+  if (loadingCurrent || loadingPrev || loadingNinetyDay) {
     return <div className="text-muted-foreground text-sm">Loading goals...</div>;
   }
 

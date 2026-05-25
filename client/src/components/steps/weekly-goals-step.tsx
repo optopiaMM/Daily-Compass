@@ -77,10 +77,17 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
 
     setDraft(initial);
 
-    // Only surface 90-day suggestions when the current week is empty
-    const totalCurrent = (currentWeekGoals ?? []).length;
-    if (totalCurrent === 0 && ninetyDayGoal?.successIndicators) {
-      setSuggestions(ninetyDayGoal.successIndicators);
+    // Surface 90-day success indicators that aren't already represented
+    // in the draft (so LP auto-adds and carry-overs don't suppress them,
+    // but we also don't double up if a suggestion was accepted before).
+    if (ninetyDayGoal?.successIndicators?.length) {
+      const existingTexts = new Set(
+        Object.values(initial).flat().map((g) => g.goalText.trim().toLowerCase()),
+      );
+      const fresh = ninetyDayGoal.successIndicators.filter(
+        (s) => !existingTexts.has(s.trim().toLowerCase()),
+      );
+      setSuggestions(fresh);
     }
 
     setHydrated(true);

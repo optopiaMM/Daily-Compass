@@ -5,6 +5,54 @@ import { getLocalQuoteForDate } from "./quotes";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
 
+  app.get("/api/annual-target", async (_req, res) => {
+    try {
+      const target = await storage.getAnnualTarget();
+      res.json(target ?? null);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.post("/api/annual-target", async (req, res) => {
+    try {
+      const created = await storage.createAnnualTarget(req.body);
+      res.json(created);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.patch("/api/annual-target/:id", async (req, res) => {
+    try {
+      const updated = await storage.updateAnnualTarget(parseInt(req.params.id), req.body);
+      res.json(updated);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.get("/api/ninety-day-goal", async (_req, res) => {
+    try {
+      const goal = await storage.getCurrentNinetyDayGoal();
+      res.json(goal ?? null);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.get("/api/ninety-day-goals", async (_req, res) => {
+    try {
+      res.json(await storage.getAllNinetyDayGoals());
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.post("/api/ninety-day-goal", async (req, res) => {
+    try {
+      const created = await storage.createNinetyDayGoal(req.body);
+      res.json(created);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.patch("/api/ninety-day-goal/:id", async (req, res) => {
+    try {
+      const updated = await storage.updateNinetyDayGoal(parseInt(req.params.id), req.body);
+      res.json(updated);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
   app.get("/api/morning-session/:date", async (req, res) => {
     try {
       const session = await storage.getMorningSession(req.params.date);

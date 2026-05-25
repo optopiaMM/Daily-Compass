@@ -1,6 +1,41 @@
-import { pgTable, text, integer, boolean, date, serial, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, date, serial, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+export type GoalStatus = "green" | "amber" | "red" | "done" | "parked";
+
+export interface FailureTrigger {
+  if: string;
+  then: string;
+}
+
+export const annualTargets = pgTable("annual_targets", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  measure: text("measure").notNull(),
+  horizon: text("horizon").notNull(),
+  status: text("status").notNull().default("green"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const ninetyDayGoals = pgTable("ninety_day_goals", {
+  id: serial("id").primaryKey(),
+  annualTargetId: integer("annual_target_id").notNull(),
+  periodLabel: text("period_label").notNull(),
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date").notNull(),
+  goalText: text("goal_text").notNull(),
+  whyText: text("why_text"),
+  successIndicators: jsonb("success_indicators").$type<string[]>().notNull().default([]),
+  failureIndicators: jsonb("failure_indicators").$type<string[]>().notNull().default([]),
+  failureTriggers: jsonb("failure_triggers").$type<FailureTrigger[]>().notNull().default([]),
+  protectedRule: text("protected_rule"),
+  ragStatus: text("rag_status").notNull().default("green"),
+  reviewText: text("review_text"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
 
 export const morningSessions = pgTable("morning_sessions", {
   id: serial("id").primaryKey(),
@@ -55,6 +90,14 @@ export const dailyQuotes = pgTable("daily_quotes", {
   quoteText: text("quote_text").notNull(),
   author: text("author").notNull(),
 });
+
+export const insertAnnualTargetSchema = createInsertSchema(annualTargets).omit({ id: true, createdAt: true });
+export const insertNinetyDayGoalSchema = createInsertSchema(ninetyDayGoals).omit({ id: true, createdAt: true });
+
+export type AnnualTarget = typeof annualTargets.$inferSelect;
+export type InsertAnnualTarget = z.infer<typeof insertAnnualTargetSchema>;
+export type NinetyDayGoal = typeof ninetyDayGoals.$inferSelect;
+export type InsertNinetyDayGoal = z.infer<typeof insertNinetyDayGoalSchema>;
 
 export const insertMorningSessionSchema = createInsertSchema(morningSessions).omit({ id: true });
 export const insertGratitudeSchema = createInsertSchema(gratitudeEntries).omit({ id: true });

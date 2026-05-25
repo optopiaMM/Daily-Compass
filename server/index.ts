@@ -3,6 +3,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { createServer } from "http";
 import { pingDb } from "./db";
+import { seedFromYamlIfEmpty } from "./seed";
 
 process.on("uncaughtException", (err) => {
   console.error("[uncaughtException]", err?.message ?? err);
@@ -42,6 +43,12 @@ app.use((req, res, next) => {
     if (err?.code) console.error("[boot] error code:", err.code);
     if (err?.stack) console.error(err.stack);
     process.exit(1);
+  }
+
+  try {
+    await seedFromYamlIfEmpty();
+  } catch (err: any) {
+    console.error("[boot] seed failed (non-fatal):", err?.message ?? err);
   }
 
   await registerRoutes(httpServer, app);

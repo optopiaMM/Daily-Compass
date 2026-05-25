@@ -3,13 +3,23 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import {
   morningSessions, gratitudeEntries, livingPowerfullyScores,
   weeklyGoals, dailyItems, dailyQuotes,
+  annualTargets, ninetyDayGoals,
   type InsertGratitudeEntry, type InsertLivingPowerfullyScore,
   type InsertDailyItem, type InsertDailyQuote,
+  type InsertAnnualTarget, type InsertNinetyDayGoal,
   type MorningSession, type GratitudeEntry, type LivingPowerfullyScore,
   type WeeklyGoal, type DailyItem, type DailyQuote,
+  type AnnualTarget, type NinetyDayGoal,
 } from "@shared/schema";
 
 export interface IStorage {
+  getAnnualTarget(): Promise<AnnualTarget | undefined>;
+  createAnnualTarget(data: InsertAnnualTarget): Promise<AnnualTarget>;
+  updateAnnualTarget(id: number, data: Partial<InsertAnnualTarget>): Promise<AnnualTarget>;
+  getCurrentNinetyDayGoal(): Promise<NinetyDayGoal | undefined>;
+  getAllNinetyDayGoals(): Promise<NinetyDayGoal[]>;
+  createNinetyDayGoal(data: InsertNinetyDayGoal): Promise<NinetyDayGoal>;
+  updateNinetyDayGoal(id: number, data: Partial<InsertNinetyDayGoal>): Promise<NinetyDayGoal>;
   getMorningSession(date: string): Promise<MorningSession | undefined>;
   completeMorningSession(date: string): Promise<void>;
   createGratitudeEntry(entry: InsertGratitudeEntry): Promise<GratitudeEntry>;
@@ -33,6 +43,58 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  async getAnnualTarget() {
+    const [row] = await db.select().from(annualTargets)
+      .where(eq(annualTargets.active, true))
+      .orderBy(desc(annualTargets.createdAt))
+      .limit(1);
+    return row;
+  }
+
+  async createAnnualTarget(data: InsertAnnualTarget) {
+    const [row] = await db.insert(annualTargets).values(data).returning();
+    return row;
+  }
+
+  async updateAnnualTarget(id: number, data: Partial<InsertAnnualTarget>) {
+    const [row] = await db.update(annualTargets).set(data).where(eq(annualTargets.id, id)).returning();
+    return row;
+  }
+
+  async getCurrentNinetyDayGoal() {
+    const today = new Date().toISOString().split("T")[0];
+    const [inWindow] = await db.select().from(ninetyDayGoals)
+      .where(and(
+        eq(ninetyDayGoals.active, true),
+        sql`${ninetyDayGoals.startDate} <= ${today}`,
+        sql`${ninetyDayGoals.endDate} >= ${today}`,
+      ))
+      .orderBy(desc(ninetyDayGoals.createdAt))
+      .limit(1);
+    if (inWindow) return inWindow;
+    // Fallback: nearest active goal (most recent by createdAt) so the cascade
+    // is still reachable even before today is inside any quarter window.
+    const [fallback] = await db.select().from(ninetyDayGoals)
+      .where(eq(ninetyDayGoals.active, true))
+      .orderBy(desc(ninetyDayGoals.createdAt))
+      .limit(1);
+    return fallback;
+  }
+
+  async getAllNinetyDayGoals() {
+    return db.select().from(ninetyDayGoals).orderBy(desc(ninetyDayGoals.startDate));
+  }
+
+  async createNinetyDayGoal(data: InsertNinetyDayGoal) {
+    const [row] = await db.insert(ninetyDayGoals).values(data).returning();
+    return row;
+  }
+
+  async updateNinetyDayGoal(id: number, data: Partial<InsertNinetyDayGoal>) {
+    const [row] = await db.update(ninetyDayGoals).set(data).where(eq(ninetyDayGoals.id, id)).returning();
+    return row;
+  }
+
   async getMorningSession(date: string) {
     const [session] = await db.select().from(morningSessions).where(eq(morningSessions.date, date));
     return session;

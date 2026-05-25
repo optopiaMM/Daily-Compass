@@ -25,7 +25,7 @@ export interface IStorage {
   createGratitudeEntry(entry: InsertGratitudeEntry): Promise<GratitudeEntry>;
   createLivingPowerfullyScores(entries: InsertLivingPowerfullyScore[]): Promise<void>;
   getWeeklyGoals(weekStartDate: string): Promise<WeeklyGoal[]>;
-  createWeeklyGoals(weekStartDate: string, goals: { category: string; goalText: string; sortOrder: number }[]): Promise<void>;
+  createWeeklyGoals(weekStartDate: string, goals: { category: string; goalText: string; sortOrder: number; isTopFocus?: boolean }[]): Promise<void>;
   addWeeklyGoal(weekStartDate: string, category: string, goalText: string): Promise<WeeklyGoal>;
   getWeeklyGoalCountByCategory(weekStartDate: string, category: string): Promise<number>;
   markWeeklyGoalComplete(goalId: number): Promise<void>;
@@ -124,7 +124,7 @@ export class DatabaseStorage implements IStorage {
       .orderBy(weeklyGoals.category, weeklyGoals.sortOrder);
   }
 
-  async createWeeklyGoals(weekStartDate: string, goals: { category: string; goalText: string; sortOrder: number }[]) {
+  async createWeeklyGoals(weekStartDate: string, goals: { category: string; goalText: string; sortOrder: number; isTopFocus?: boolean }[]) {
     await db.delete(weeklyGoals).where(eq(weeklyGoals.weekStartDate, weekStartDate));
     if (goals.length > 0) {
       const current = await this.getCurrentNinetyDayGoal();
@@ -137,6 +137,7 @@ export class DatabaseStorage implements IStorage {
           sortOrder: g.sortOrder,
           completed: false,
           ninetyDayGoalId,
+          isTopFocus: g.isTopFocus ?? false,
         }))
       );
     }

@@ -71,6 +71,7 @@ export const weeklyGoals = pgTable("weekly_goals", {
   completed: boolean("completed").notNull().default(false),
   sortOrder: integer("sort_order").notNull().default(0),
   ninetyDayGoalId: integer("ninety_day_goal_id"),
+  isTopFocus: boolean("is_top_focus").notNull().default(false),
 });
 
 export const dailyItems = pgTable("daily_items", {

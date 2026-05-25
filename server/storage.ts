@@ -110,7 +110,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createGratitudeEntry(entry: InsertGratitudeEntry) {
-    const [result] = await db.insert(gratitudeEntries).values(entry).returning();
+    // Upsert on the date unique constraint so a mid-ritual refresh
+    // (which resets stepIndex to 0 and re-shows gratitude) can re-save
+    // without hitting "duplicate key value violates unique constraint".
+    const [result] = await db.insert(gratitudeEntries)
+      .values(entry)
+      .onConflictDoUpdate({
+        target: gratitudeEntries.date,
+        set: {
+          general1: entry.general1,
+          general2: entry.general2,
+          general3: entry.general3,
+          lizzie: entry.lizzie,
+          george: entry.george,
+          ben: entry.ben,
+        },
+      })
+      .returning();
     return result;
   }
 

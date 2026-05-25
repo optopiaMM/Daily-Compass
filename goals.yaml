@@ -3,111 +3,168 @@
 #  Annual target  ->  90-day goal  ->  weekly goals  ->  daily activities
 #
 #  HOW TO USE THIS FILE
-#  - Edit it by hand in the GitHub web interface (it's just text).
-#  - The app reads it each morning to set daily priorities AND to check
-#    for drift (orphan tasks, neglected goals, failure-trigger conditions).
-#  - Update the `status` fields as things move. Review weekly (Fridays).
-#  - Reset the 90-day block each quarter. Annual target changes rarely.
-#
-#  STATUS values used throughout: green | amber | red | done | parked
-#  (green = on track, amber = slipping but recoverable, red = needs a
-#   strategy change — these mirror your existing RAG habit.)
+#  - This file is the ONE-TIME SEED for the app's goal tables.
+#    After the app loads it once, the database is the source of truth
+#    and you manage goals in the app (not by editing this file).
+#  - STATUS values: green | amber | red | done | parked
+#    (green = on track, amber = slipping but recoverable, red = needs
+#     a strategy change.)
 # =====================================================================
 
 annual_target:
   id: AT1
-  title: "Replace day-job income with Optopia revenue"
-  measure: "Monthly Optopia revenue reaches and holds £8k/month"
+  title: "Replace day-job income with sustainable Optopia revenue"
+  measure: "Monthly revenue held at or above £8k from diversified sources (£6-7k flex while building)"
   horizon: "2026"
-  status: green
-  # The fixed reference point. Everything below should ladder up to this.
+  status: amber
+  # Carried in from Q1: £8k+ achieved for 2+ months, but not yet secured
+  # forward beyond current work. Holding, not yet sustained.
 
 ninety_day_goal:
-  id: Q3-2026                       # June–August 2026 quarter
-  period: "June – August 2026"
-  parent: AT1                       # <- links up to the annual target
+  id: Q3-2026
+  period: "June - August 2026"
+  label: "Conversion Quarter"
+  parent: AT1
   status: green
   goal: >
-    [TBC — to be set in the week-12 review of the current quarter.
-     Likely shape, continuing the March–May logic: convert the two
-     active associate relationships into sustained billable days,
-     plus one new direct or higher-margin engagement.]
+    Resolve IBM (signed or dropped) within 2 weeks; convert QASR on the
+    Southern Water framework decision; keep Agilia delivering and apply
+    the Associate Engagement Protocol; publish a first-mover PR29-delivery
+    white paper ahead of 17 August; and add enough pipeline to cover the
+    forward income gap.
   why: >
-    [TBC — the one-paragraph rationale, as in the March–May plan.]
+    Last quarter proved the model works at the unit level - one engagement,
+    one validated rate (£900/day banked via Agilia). This quarter has to
+    prove it sustains: turn warm conversations into signed work, avoid
+    over-dependence on Agilia alone, and convert the highest-value
+    opportunity (QASR at direct-advisory rates) that could pull Phase 2
+    forward.
 
-  # Lifted straight from your plan's own end-of-quarter logic.
-  # The app watches BOTH lists — success to confirm, failure to flag.
+  # Honest position carried in from March-May, the evidence base.
+  status_at_start:
+    - item: "Prev. 90-day goal"
+      status: "£8k/month for 2+ months; one associate active; forward income not yet secured"
+      rag: amber
+    - item: "Agilia"
+      status: "CONVERTED. £900/day, 1-3 d/wk. First banked associate engagement"
+      rag: green
+    - item: "QASR"
+      status: "Warm. ~£1,600+/day (direct-advisory tier). Gated on Southern Water framework (~60 days)"
+      rag: amber
+    - item: "IBM / Nuvantiq"
+      status: "Two-stage. ~£2.5k/3 days + commission. Go/no-go due within 2 weeks"
+      rag: amber
+    - item: "Day-rate validation"
+      status: "RESOLVED. £900/day banked - the critical financial unknown is answered"
+      rag: green
+    - item: "Content / thought leadership"
+      status: "Replaced stalled Ofwat-dependent plan with PR29-delivery white paper anchored to DCAF + 17 Aug deadline"
+      rag: amber
+
+  # The three parallel conversion tracks. Each has a forcing point the
+  # drift check can watch.
+  tracks:
+    - id: T1
+      name: "IBM / Nuvantiq - resolve in 2 weeks (sign or drop)"
+      forcing_point: "Nuvantiq go/no-go by ~12 Jun. Binary: make it happen or forget it."
+      note: "Nuvantiq no-go is the gate that legitimises the direct IBM route. If Nuvantiq stays live, the direct path stays closed."
+      status: amber
+    - id: T2
+      name: "QASR - convert on Southern Water framework (~60 days)"
+      forcing_point: "External trigger ~early Aug. Be so ready the booking follows the moment it lands. Rate agreed by mid-Jul."
+      status: amber
+    - id: T3
+      name: "Agilia - sustain, and bridge to direct work"
+      forcing_point: "Apply Associate Engagement Protocol; surface long-term contract explicitly."
+      status: green
+
   success_indicators:
-    - "Monthly revenue at or above £8k, held for two consecutive months"
-    - "Two associate relationships generating regular billable days at £950+/day"
-    - "One new direct or higher-margin engagement secured or in late-stage"
-    - "Pipeline tracker showing 3+ active conversations (not dormant)"
-    - "IWO conference prep underway; target contacts identified"
+    - "IBM resolved cleanly - signed (Nuvantiq or direct) or deliberately dropped"
+    - "QASR converted on the framework decision, or concrete dated next step at £1,600+/day"
+    - "Agilia sustained; long-term contract surfaced; Protocol producing a direct WC touchpoint"
+    - "White paper published before mid-Aug; third article timed to 17 Aug; non-peer conversations"
+    - "Forward income gap closed: pipeline showing signed or near-signed work beyond current engagements"
+    - "Monthly revenue held at or above £8k with diversified sources"
   failure_indicators:
-    - "Revenue stalls below £6k/month"
-    - "Associate days drying up with nothing replacing them"
-    - "Weekly review not being done — no evidence base"
-    - "Pipeline tracker not updated — follow-ups being missed"
+    - "IBM still 'ongoing' at quarter end - drifted a third quarter without a decision"
+    - "Framework landed but QASR did not convert - highest-value opportunity slipped"
+    - "Agilia the only income; still entirely under partner brand with no Optopia recognition"
+    - "Content slipped again - the 17 Aug first-mover moment missed"
+    - "Income still secured only month-to-month; nothing signed for Sep onward"
+    - "Revenue below the £6k flex threshold, or wholly dependent on one engagement"
 
-  # Conditions worth flagging early, with YOUR prescribed response.
-  # The app surfaces the trigger AND the response together.
+  # Mid-quarter triggers, each paired with your prescribed response.
   failure_triggers:
-    - if: "Weekly review skipped two weeks running"
-      then: "System failure, not discipline. Simplify the review if it's not being done."
-    - if: "Protected content morning slot eaten by delivery work 3+ days"
-      then: "Defend the slot like a client commitment. It pays next quarter's invoices."
-    - if: "Rate conversations reveal partners won't pay £950+/day"
-      then: "Revise the financial model immediately — don't wait for month 3."
+    - if: "Nuvantiq won't give a clear decision"
+      then: "Set a hard deadline; state silence will be treated as no-go. Don't let it occupy a third quarter. Keep the direct route clean by not pre-empting it."
+    - if: "Southern Water framework slips beyond the quarter"
+      then: "Don't let QASR go cold. Keep warm with white paper + value-add note; lean harder on new targets to cover the gap."
+    - if: "Agilia stays at 1 day/week, not 3"
+      then: "Surface the long-term contract conversation directly; accelerate new targets. One engagement at low utilisation won't hold £8k/month."
+    - if: "White paper not landing with the right audience"
+      then: "Reread target-audience posts; rewrite from their vantage point. Time the next piece to 17 Aug, not a quiet week."
+    - if: "Forward gap not closing"
+      then: "Treat new-target outreach as priority over content for a fortnight; use the white paper as door-opener, not cold approach."
 
-  # Standing rule from your plan — the app can enforce this daily.
-  protected_rule: "Content morning slot is non-negotiable. Flag any day delivery work displaces it."
+  # Standing rules carried forward - the app can enforce these daily.
+  protected_rule: "Content morning slot is non-negotiable - defend it like a client commitment. Flag any day delivery work displaces it."
+  operating_systems:
+    - "Protected content morning (defended like a client commitment)"
+    - "20-minute Friday review (RAG + what moved + top 3 next week)"
+    - "Pipeline tracker updated every Friday - 'rate discussed?' is the most important field"
 
 # ---------------------------------------------------------------------
 #  WEEKLY GOALS
-#  Each week points up at the 90-day goal. The app sets daily activities
-#  from the current week and generates the Friday review from this block.
+#  Week 1 populated from the plan; later weeks summarised. Each links up
+#  to the 90-day goal. The app suggests Profit/Promise goals from here
+#  and prompts you across the other P's.
 # ---------------------------------------------------------------------
 weekly_goals:
   - id: W1
     week_of: "2026-06-01"
-    parent: Q3-2026                 # <- links up to the 90-day goal
-    theme: "[TBC — e.g. Months 4–6 kickoff: pipeline reset]"
-    capacity_estimate: "UKWIR ongoing — assume 2 delivery days. BD + content ~8 hrs."
-    status: green
-    actions:                        # these become the daily activities
-      - id: W1-A1
-        what: "[TBC action]"
-        deadline: "2026-06-02"
-        success_measure: "[TBC]"
-        dependency: "None"
-        priority: normal            # normal | low  (low = your 'amber' deferrable)
-        status: green
-      - id: W1-A2
-        what: "[TBC action]"
-        deadline: "2026-06-05"
-        success_measure: "[TBC]"
-        dependency: "[TBC]"
-        priority: low
-        status: green
-    friday_review:                  # filled in each Friday (your 20-min template)
-      completed: ""
-      slipped_and_why: ""
-      pipeline_moved: ""
-      top_3_next_week: ""
-      rag: ""
-
-  - id: W2
-    week_of: "2026-06-08"
     parent: Q3-2026
-    theme: "[TBC]"
-    capacity_estimate: "[TBC]"
+    theme: "Force IBM, refresh tracker, start the white paper"
+    capacity_estimate: "Agilia delivery continues. BD + content = 8-10 hrs."
     status: green
     actions:
-      - id: W2-A1
-        what: "[TBC action]"
-        deadline: "2026-06-10"
-        success_measure: "[TBC]"
-        dependency: "[TBC]"
+      - id: W1-A1
+        what: "Open the IBM/Nuvantiq go/no-go (Track 1, Stage 1). Set a decision deadline, don't leave it open."
+        deadline: "2026-06-01"
+        success_measure: "Nuvantiq conversation initiated with a stated decision date."
+        dependency: "None. Do this first."
+        pillar: Promise
+        priority: high
+        status: green
+      - id: W1-A2
+        what: "Refresh pipeline tracker: Agilia active, QASR gated, IBM two-stage, add new targets."
+        deadline: "2026-06-01"
+        success_measure: "Tracker current and accessible."
+        dependency: "None"
+        pillar: Profit
+        priority: normal
+        status: green
+      - id: W1-A3
+        what: "Draft white-paper skeleton: PR29 delivery, anchored to DCAF consultation + 17 Aug deadline."
+        deadline: "2026-06-05"
+        success_measure: "Skeleton saved: 4 headers, argument, the questions a head of BP should ask."
+        dependency: "None"
+        pillar: Promise
+        priority: normal
+        status: green
+      - id: W1-A4
+        what: "Agree Associate Engagement Protocol scope with Agilia (Track 3)."
+        deadline: "2026-06-05"
+        success_measure: "Direct-contact boundaries agreed with Agilia."
+        dependency: "Agilia engagement active."
+        pillar: Promise
+        priority: normal
+        status: green
+      - id: W1-A5
+        what: "Direct outreach: 5 network contacts for near-term work to close the forward gap."
+        deadline: "2026-06-02"
+        success_measure: "5 DMs sent. 2+ responses."
+        dependency: "None"
+        pillar: Profit
         priority: normal
         status: green
     friday_review:
@@ -117,23 +174,47 @@ weekly_goals:
       top_3_next_week: ""
       rag: ""
 
+  # Weeks 2-12 summarised from the plan - fill out in the app week by week.
+  - id: W2
+    week_of: "2026-06-08"
+    parent: Q3-2026
+    theme: "IBM decision lands, white paper takes shape"
+    capacity_estimate: "~2 Agilia delivery days. BD + content = 8 hrs."
+    status: green
+    actions: []
+    friday_review: { completed: "", slipped_and_why: "", pipeline_moved: "", top_3_next_week: "", rag: "" }
+  - id: W3
+    week_of: "2026-06-15"
+    parent: Q3-2026
+    theme: "White paper published, new targets, IBM direct (if applicable)"
+    capacity_estimate: "Protect white-paper time above other BD."
+    status: green
+    actions: []
+    friday_review: { completed: "", slipped_and_why: "", pipeline_moved: "", top_3_next_week: "", rag: "" }
+  - id: W4
+    week_of: "2026-06-22"
+    parent: Q3-2026
+    theme: "Follow-up and QASR positioning"
+    capacity_estimate: "Delivery 2-3 days. BD = 6-8 hrs."
+    status: green
+    actions: []
+    friday_review: { completed: "", slipped_and_why: "", pipeline_moved: "", top_3_next_week: "", rag: "" }
+
 # ---------------------------------------------------------------------
-#  DAILY ACTIVITIES
-#  Normally GENERATED by the app from the current week's actions, so you
-#  don't hand-write this block. Shown here so the shape is clear: each
-#  day's priorities, each pointing back at a weekly action (and thus all
-#  the way up to the annual target).
+#  DAILY ACTIVITIES - generated by the app from the current week's
+#  actions. Shown as an example only.
 # ---------------------------------------------------------------------
 daily_example:
   date: "2026-06-01"
-  main_goal: "W1-A1"                # the single most important thing today
+  main_goal: "W1-A1"
   priorities:
-    - ref: "W1-A1"                  # <- links up to a weekly action
-      note: "[today's specific intent for this action]"
+    - ref: "W1-A1"
+      note: "Force the Nuvantiq conversation - set the hard decision date today."
     - ref: "W1-A2"
-      note: "[…]"
-  # The app's morning drift check, expressed against THIS file:
-  #   - any priority whose `ref` points at a parked/done/missing action  -> orphan flag
-  #   - any 90-day success path with no weekly actions pointing at it     -> neglect flag
-  #   - protected_rule breached                                           -> rule flag
-  #   - a failure_trigger `if` condition met                              -> trigger flag + its `then`
+      note: "30 min tracker refresh."
+  # Morning drift check reads against this file:
+  #   - daily priority ref pointing at parked/done/missing action  -> orphan flag
+  #   - a 6 P's pillar with no goal this week                       -> neglect flag
+  #   - a track with no action this week near its forcing point     -> track-stall flag
+  #   - protected_rule breached                                     -> rule flag
+  #   - a failure_trigger 'if' condition met                        -> trigger flag + its 'then'

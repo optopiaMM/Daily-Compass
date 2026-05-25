@@ -98,7 +98,7 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
   return (
     <div className="space-y-6" data-testid="weekly-goals-step">
       <div className="flex items-center gap-3">
-        <Target className="w-5 h-5 text-primary" />
+        <Target className="w-5 h-5 text-success" />
         <p className="text-muted-foreground text-sm">
           Set your Six P's goals for the week. Carried items from last week and LP actions are pre-filled.
         </p>

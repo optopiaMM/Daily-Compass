@@ -23,7 +23,7 @@ export default function Home() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center" data-testid="loading-screen">
         <div className="animate-pulse flex flex-col items-center gap-4">
-          <div className="w-16 h-16 rounded-full bg-primary/20" />
+          <div className="w-16 h-16 rounded-full bg-success/20" />
           <p className="text-muted-foreground font-serif text-lg">Preparing your day...</p>
         </div>
       </div>

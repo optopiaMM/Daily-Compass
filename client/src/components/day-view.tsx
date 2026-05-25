@@ -113,12 +113,12 @@ export default function DayView({ date }: DayViewProps) {
         {mainGoal && (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <Star className="w-4 h-4 text-primary" />
+              <Star className="w-4 h-4 text-success" />
               <h3 className="font-serif text-base">Main Goal</h3>
             </div>
             <button
               onClick={() => toggle.mutate(mainGoal.id)}
-              className={`w-full text-left bg-primary/10 border border-primary/30 rounded-lg p-4 flex items-start gap-3 hover-elevate ${mainGoal.completed ? "opacity-60" : ""}`}
+              className={`w-full text-left bg-success/10 border border-success/30 rounded-lg p-4 flex items-start gap-3 hover-elevate ${mainGoal.completed ? "opacity-60" : ""}`}
               data-testid={`button-toggle-main-${mainGoal.id}`}
             >
               <Check className={`w-5 h-5 mt-0.5 ${mainGoal.completed ? "text-success" : "text-muted-foreground/30"}`} />

@@ -186,7 +186,7 @@ export default function DailyPlanningStep({ date, onComplete }: DailyPlanningSte
 
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <Star className="w-4 h-4 text-primary" />
+          <Star className="w-4 h-4 text-success" />
           <h3 className="font-serif text-base">Main Goal</h3>
         </div>
         <SlotCard
@@ -212,7 +212,7 @@ export default function DailyPlanningStep({ date, onComplete }: DailyPlanningSte
 
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <ListChecks className="w-4 h-4 text-primary" />
+          <ListChecks className="w-4 h-4 text-success" />
           <h3 className="font-serif text-base">To-Do</h3>
         </div>
         <div className="space-y-2">
@@ -272,7 +272,7 @@ function SlotCard({ item, emptyLabel, onDemote }: { item?: PoolItem; emptyLabel:
     return <div className="bg-card/40 rounded border border-dashed text-xs text-muted-foreground italic p-3">{emptyLabel}</div>;
   }
   return (
-    <div className="bg-primary/5 rounded p-3 border border-primary/20 flex items-center gap-2">
+    <div className="bg-success/5 rounded p-3 border border-success/20 flex items-center gap-2">
       <span className="flex-1 text-sm">{item.text}</span>
       <button onClick={onDemote} className="text-muted-foreground hover:text-destructive p-1" aria-label="Demote">
         <X className="w-4 h-4" />

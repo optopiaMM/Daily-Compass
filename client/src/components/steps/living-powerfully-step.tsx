@@ -73,7 +73,7 @@ export default function LivingPowerfullyStep({ date, onNext }: LivingPowerfullyS
   return (
     <div className="space-y-6" data-testid="living-powerfully-step">
       <div className="flex items-center gap-3">
-        <Compass className="w-5 h-5 text-primary" />
+        <Compass className="w-5 h-5 text-success" />
         <p className="text-muted-foreground text-sm">
           Score each life area. Low scores prompt a single concrete action for the week.
         </p>

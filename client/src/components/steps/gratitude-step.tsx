@@ -25,7 +25,7 @@ export default function GratitudeStep({ date, onNext }: GratitudeStepProps) {
   return (
     <div className="space-y-6" data-testid="gratitude-step">
       <div className="flex items-center gap-3 mb-2">
-        <Sparkles className="w-5 h-5 text-primary" />
+        <Sparkles className="w-5 h-5 text-success" />
         <p className="text-muted-foreground text-sm">Take a moment to reflect on what you're grateful for today.</p>
       </div>
       <div className="space-y-4">
@@ -41,7 +41,7 @@ export default function GratitudeStep({ date, onNext }: GratitudeStepProps) {
       </div>
       <div className="pt-2 space-y-4">
         <div className="flex items-center gap-2">
-          <Heart className="w-4 h-4 text-primary/60" />
+          <Heart className="w-4 h-4 text-success/70" />
           <p className="font-serif text-base text-foreground/80">People I'm grateful for...</p>
         </div>
         {[{ key: "lizzie" as const, label: "Lizzie" }, { key: "george" as const, label: "George" }, { key: "ben" as const, label: "Ben" }].map(({ key, label }) => (

@@ -127,8 +127,17 @@ export class DatabaseStorage implements IStorage {
   async createWeeklyGoals(weekStartDate: string, goals: { category: string; goalText: string; sortOrder: number }[]) {
     await db.delete(weeklyGoals).where(eq(weeklyGoals.weekStartDate, weekStartDate));
     if (goals.length > 0) {
+      const current = await this.getCurrentNinetyDayGoal();
+      const ninetyDayGoalId = current?.id ?? null;
       await db.insert(weeklyGoals).values(
-        goals.map((g) => ({ weekStartDate, category: g.category, goalText: g.goalText, sortOrder: g.sortOrder, completed: false }))
+        goals.map((g) => ({
+          weekStartDate,
+          category: g.category,
+          goalText: g.goalText,
+          sortOrder: g.sortOrder,
+          completed: false,
+          ninetyDayGoalId,
+        }))
       );
     }
   }
@@ -136,8 +145,16 @@ export class DatabaseStorage implements IStorage {
   async addWeeklyGoal(weekStartDate: string, category: string, goalText: string) {
     const existing = await db.select().from(weeklyGoals)
       .where(and(eq(weeklyGoals.weekStartDate, weekStartDate), eq(weeklyGoals.category, category)));
+    const current = await this.getCurrentNinetyDayGoal();
     const [result] = await db.insert(weeklyGoals)
-      .values({ weekStartDate, category, goalText, sortOrder: existing.length, completed: false })
+      .values({
+        weekStartDate,
+        category,
+        goalText,
+        sortOrder: existing.length,
+        completed: false,
+        ninetyDayGoalId: current?.id ?? null,
+      })
       .returning();
     return result;
   }

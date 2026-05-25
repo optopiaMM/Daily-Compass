@@ -1,0 +1,139 @@
+# =====================================================================
+#  DAILY COMPASS — GOALS CASCADE
+#  Annual target  ->  90-day goal  ->  weekly goals  ->  daily activities
+#
+#  HOW TO USE THIS FILE
+#  - Edit it by hand in the GitHub web interface (it's just text).
+#  - The app reads it each morning to set daily priorities AND to check
+#    for drift (orphan tasks, neglected goals, failure-trigger conditions).
+#  - Update the `status` fields as things move. Review weekly (Fridays).
+#  - Reset the 90-day block each quarter. Annual target changes rarely.
+#
+#  STATUS values used throughout: green | amber | red | done | parked
+#  (green = on track, amber = slipping but recoverable, red = needs a
+#   strategy change — these mirror your existing RAG habit.)
+# =====================================================================
+
+annual_target:
+  id: AT1
+  title: "Replace day-job income with Optopia revenue"
+  measure: "Monthly Optopia revenue reaches and holds £8k/month"
+  horizon: "2026"
+  status: green
+  # The fixed reference point. Everything below should ladder up to this.
+
+ninety_day_goal:
+  id: Q3-2026                       # June–August 2026 quarter
+  period: "June – August 2026"
+  parent: AT1                       # <- links up to the annual target
+  status: green
+  goal: >
+    [TBC — to be set in the week-12 review of the current quarter.
+     Likely shape, continuing the March–May logic: convert the two
+     active associate relationships into sustained billable days,
+     plus one new direct or higher-margin engagement.]
+  why: >
+    [TBC — the one-paragraph rationale, as in the March–May plan.]
+
+  # Lifted straight from your plan's own end-of-quarter logic.
+  # The app watches BOTH lists — success to confirm, failure to flag.
+  success_indicators:
+    - "Monthly revenue at or above £8k, held for two consecutive months"
+    - "Two associate relationships generating regular billable days at £950+/day"
+    - "One new direct or higher-margin engagement secured or in late-stage"
+    - "Pipeline tracker showing 3+ active conversations (not dormant)"
+    - "IWO conference prep underway; target contacts identified"
+  failure_indicators:
+    - "Revenue stalls below £6k/month"
+    - "Associate days drying up with nothing replacing them"
+    - "Weekly review not being done — no evidence base"
+    - "Pipeline tracker not updated — follow-ups being missed"
+
+  # Conditions worth flagging early, with YOUR prescribed response.
+  # The app surfaces the trigger AND the response together.
+  failure_triggers:
+    - if: "Weekly review skipped two weeks running"
+      then: "System failure, not discipline. Simplify the review if it's not being done."
+    - if: "Protected content morning slot eaten by delivery work 3+ days"
+      then: "Defend the slot like a client commitment. It pays next quarter's invoices."
+    - if: "Rate conversations reveal partners won't pay £950+/day"
+      then: "Revise the financial model immediately — don't wait for month 3."
+
+  # Standing rule from your plan — the app can enforce this daily.
+  protected_rule: "Content morning slot is non-negotiable. Flag any day delivery work displaces it."
+
+# ---------------------------------------------------------------------
+#  WEEKLY GOALS
+#  Each week points up at the 90-day goal. The app sets daily activities
+#  from the current week and generates the Friday review from this block.
+# ---------------------------------------------------------------------
+weekly_goals:
+  - id: W1
+    week_of: "2026-06-01"
+    parent: Q3-2026                 # <- links up to the 90-day goal
+    theme: "[TBC — e.g. Months 4–6 kickoff: pipeline reset]"
+    capacity_estimate: "UKWIR ongoing — assume 2 delivery days. BD + content ~8 hrs."
+    status: green
+    actions:                        # these become the daily activities
+      - id: W1-A1
+        what: "[TBC action]"
+        deadline: "2026-06-02"
+        success_measure: "[TBC]"
+        dependency: "None"
+        priority: normal            # normal | low  (low = your 'amber' deferrable)
+        status: green
+      - id: W1-A2
+        what: "[TBC action]"
+        deadline: "2026-06-05"
+        success_measure: "[TBC]"
+        dependency: "[TBC]"
+        priority: low
+        status: green
+    friday_review:                  # filled in each Friday (your 20-min template)
+      completed: ""
+      slipped_and_why: ""
+      pipeline_moved: ""
+      top_3_next_week: ""
+      rag: ""
+
+  - id: W2
+    week_of: "2026-06-08"
+    parent: Q3-2026
+    theme: "[TBC]"
+    capacity_estimate: "[TBC]"
+    status: green
+    actions:
+      - id: W2-A1
+        what: "[TBC action]"
+        deadline: "2026-06-10"
+        success_measure: "[TBC]"
+        dependency: "[TBC]"
+        priority: normal
+        status: green
+    friday_review:
+      completed: ""
+      slipped_and_why: ""
+      pipeline_moved: ""
+      top_3_next_week: ""
+      rag: ""
+
+# ---------------------------------------------------------------------
+#  DAILY ACTIVITIES
+#  Normally GENERATED by the app from the current week's actions, so you
+#  don't hand-write this block. Shown here so the shape is clear: each
+#  day's priorities, each pointing back at a weekly action (and thus all
+#  the way up to the annual target).
+# ---------------------------------------------------------------------
+daily_example:
+  date: "2026-06-01"
+  main_goal: "W1-A1"                # the single most important thing today
+  priorities:
+    - ref: "W1-A1"                  # <- links up to a weekly action
+      note: "[today's specific intent for this action]"
+    - ref: "W1-A2"
+      note: "[…]"
+  # The app's morning drift check, expressed against THIS file:
+  #   - any priority whose `ref` points at a parked/done/missing action  -> orphan flag
+  #   - any 90-day success path with no weekly actions pointing at it     -> neglect flag
+  #   - protected_rule breached                                           -> rule flag
+  #   - a failure_trigger `if` condition met                              -> trigger flag + its `then`

@@ -63,6 +63,25 @@ export const livingPowerfullyScores = pgTable("living_powerfully_scores", {
   targetCategory: text("target_category"),
 });
 
+export const weeklyGoalTemplates = pgTable("weekly_goal_templates", {
+  id: serial("id").primaryKey(),
+  weekStartDate: date("week_start_date").notNull(),
+  pillar: text("pillar").notNull(),
+  track: text("track"),
+  goalTitle: text("goal_title").notNull(),
+  goalDescription: text("goal_description"),
+  priority: integer("priority"),
+  timeEstimateMins: integer("time_estimate_mins"),
+  parent90DayGoal: text("parent_90day_goal"),
+  status: text("status").notNull().default("not_started"),
+  notes: text("notes"),
+  sortOrder: integer("sort_order").notNull().default(0),
+});
+
+export const insertWeeklyGoalTemplateSchema = createInsertSchema(weeklyGoalTemplates).omit({ id: true });
+export type WeeklyGoalTemplate = typeof weeklyGoalTemplates.$inferSelect;
+export type InsertWeeklyGoalTemplate = z.infer<typeof insertWeeklyGoalTemplateSchema>;
+
 export const weeklyGoals = pgTable("weekly_goals", {
   id: serial("id").primaryKey(),
   weekStartDate: date("week_start_date").notNull(),

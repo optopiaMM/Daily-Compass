@@ -4,8 +4,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Target, X, Plus, Star, Lightbulb } from "lucide-react";
-import { SIX_P_CATEGORIES, type WeeklyGoal, type NinetyDayGoal } from "@shared/schema";
+import { Target, X, Plus, Star, Lightbulb, Clock } from "lucide-react";
+import { SIX_P_CATEGORIES, type WeeklyGoal, type NinetyDayGoal, type WeeklyGoalTemplate } from "@shared/schema";
 import { getWeekStartDate, getPreviousWeekStartDate } from "@/lib/dateUtils";
 
 const MAX_GOALS_PER_CATEGORY = 10;
@@ -17,7 +17,8 @@ interface DraftGoal {
   goalText: string;
   isTopFocus: boolean;
   carriedFromPrev?: boolean;
-  suggestedFromNinetyDay?: boolean;
+  suggestedFromTemplate?: boolean;
+  templateTitle?: string;
 }
 
 function formatPillarList(pillars: string[]): string {
@@ -42,14 +43,17 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
   const { data: ninetyDayGoal, isLoading: loadingNinetyDay } = useQuery<NinetyDayGoal | null>({
     queryKey: ["/api/ninety-day-goal"],
   });
+  const { data: templates, isLoading: loadingTemplates } = useQuery<WeeklyGoalTemplate[]>({
+    queryKey: ["/api/weekly-goal-templates", weekStartDate],
+  });
 
   const [draft, setDraft] = useState<Record<string, DraftGoal[]>>({});
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [dismissedTemplateIds, setDismissedTemplateIds] = useState<Set<number>>(new Set());
   const [hydrated, setHydrated] = useState(false);
   const [newGoalText, setNewGoalText] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (hydrated || loadingCurrent || loadingPrev || loadingNinetyDay) return;
+    if (hydrated || loadingCurrent || loadingPrev || loadingNinetyDay || loadingTemplates) return;
     const initial: Record<string, DraftGoal[]> = {};
     for (const cat of SIX_P_CATEGORIES) initial[cat] = [];
 
@@ -76,22 +80,8 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
     }
 
     setDraft(initial);
-
-    // Surface 90-day success indicators that aren't already represented
-    // in the draft (so LP auto-adds and carry-overs don't suppress them,
-    // but we also don't double up if a suggestion was accepted before).
-    if (ninetyDayGoal?.successIndicators?.length) {
-      const existingTexts = new Set(
-        Object.values(initial).flat().map((g) => g.goalText.trim().toLowerCase()),
-      );
-      const fresh = ninetyDayGoal.successIndicators.filter(
-        (s) => !existingTexts.has(s.trim().toLowerCase()),
-      );
-      setSuggestions(fresh);
-    }
-
     setHydrated(true);
-  }, [currentWeekGoals, previousGoals, loadingCurrent, loadingPrev, loadingNinetyDay, hydrated, ninetyDayGoal]);
+  }, [currentWeekGoals, previousGoals, loadingCurrent, loadingPrev, loadingNinetyDay, loadingTemplates, hydrated]);
 
   const allGoals = useMemo(() => Object.values(draft).flat(), [draft]);
   const totalCount = allGoals.length;
@@ -99,6 +89,15 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
   const emptyPillars = SIX_P_CATEGORIES.filter((cat) => (draft[cat] ?? []).length === 0);
   const filledPillarCount = SIX_P_CATEGORIES.length - emptyPillars.length;
   const showBalancePrompt = emptyPillars.length > 0 && emptyPillars.length < SIX_P_CATEGORIES.length;
+
+  // Templates that haven't been accepted into the draft (by title match) or dismissed.
+  const availableTemplates = useMemo(() => {
+    if (!templates) return [];
+    const draftTitles = new Set(allGoals.map((g) => g.goalText.trim().toLowerCase()));
+    return templates.filter(
+      (t) => !dismissedTemplateIds.has(t.id) && !draftTitles.has(t.goalTitle.trim().toLowerCase()),
+    );
+  }, [templates, allGoals, dismissedTemplateIds]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -122,7 +121,8 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
-  function acceptSuggestion(text: string, category: string) {
+  function acceptTemplate(t: WeeklyGoalTemplate) {
+    const category = t.pillar;
     if ((draft[category]?.length ?? 0) >= MAX_GOALS_PER_CATEGORY) {
       toast({
         title: "Category full",
@@ -135,14 +135,46 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
       ...prev,
       [category]: [
         ...(prev[category] ?? []),
-        { id: `sug-${Date.now()}`, goalText: text, isTopFocus: false, suggestedFromNinetyDay: true },
+        {
+          id: `tpl-${t.id}`,
+          goalText: t.goalTitle,
+          isTopFocus: false,
+          suggestedFromTemplate: true,
+          templateTitle: t.goalTitle,
+        },
       ],
     }));
-    setSuggestions((prev) => prev.filter((s) => s !== text));
   }
 
-  function dismissSuggestion(text: string) {
-    setSuggestions((prev) => prev.filter((s) => s !== text));
+  function dismissTemplate(id: number) {
+    setDismissedTemplateIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }
+
+  function acceptAllTemplates() {
+    if (!availableTemplates.length) return;
+    setDraft((prev) => {
+      const next: Record<string, DraftGoal[]> = { ...prev };
+      for (const t of availableTemplates) {
+        const cat = t.pillar;
+        const current = next[cat] ?? [];
+        if (current.length >= MAX_GOALS_PER_CATEGORY) continue;
+        next[cat] = [
+          ...current,
+          {
+            id: `tpl-${t.id}`,
+            goalText: t.goalTitle,
+            isTopFocus: false,
+            suggestedFromTemplate: true,
+            templateTitle: t.goalTitle,
+          },
+        ];
+      }
+      return next;
+    });
   }
 
   function addGoal(category: string) {
@@ -183,7 +215,7 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
     });
   }
 
-  if (loadingCurrent || loadingPrev || loadingNinetyDay) {
+  if (loadingCurrent || loadingPrev || loadingNinetyDay || loadingTemplates) {
     return <div className="text-muted-foreground text-sm">Loading goals...</div>;
   }
 
@@ -202,44 +234,72 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
         </p>
       </div>
 
-      {suggestions.length > 0 && (
-        <div className="space-y-2 bg-info/5 border border-info/30 rounded-lg p-3" data-testid="suggestions-block">
-          <div className="flex items-center gap-2">
-            <Lightbulb className="w-4 h-4 text-info" />
-            <h3 className="font-serif text-sm">Suggested from your 90-day goal</h3>
+      {availableTemplates.length > 0 && (
+        <div className="space-y-2 bg-info/5 border border-info/30 rounded-lg p-3" data-testid="templates-block">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Lightbulb className="w-4 h-4 text-info" />
+              <h3 className="font-serif text-sm">This week's plan</h3>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={acceptAllTemplates}
+              data-testid="button-accept-all"
+            >
+              Accept all
+            </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Pick which pillar each lands in, or dismiss the ones you won't tackle this week.
+            From your prescribed plan. Add what fits, dismiss what doesn't.
           </p>
           <div className="space-y-2 pt-1">
-            {suggestions.map((s, i) => (
-              <div key={i} className="bg-background rounded border p-2 space-y-2" data-testid={`suggestion-${i}`}>
-                <p className="text-sm leading-snug">{s}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => acceptSuggestion(s, "Profit")}
-                    data-testid={`button-accept-profit-${i}`}
-                  >
-                    + Profit
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => acceptSuggestion(s, "Promise")}
-                    data-testid={`button-accept-promise-${i}`}
-                  >
-                    + Promise
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => dismissSuggestion(s)}
-                    data-testid={`button-dismiss-${i}`}
-                  >
-                    Dismiss
-                  </Button>
+            {availableTemplates.map((t) => (
+              <div key={t.id} className="bg-background rounded border p-2 space-y-2" data-testid={`template-${t.id}`}>
+                <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] uppercase tracking-wide text-info">{t.pillar}</span>
+                    {t.track && (
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">· {t.track}</span>
+                    )}
+                  </div>
+                  {t.priority != null && (
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">P{t.priority}</span>
+                  )}
+                </div>
+                <p className="text-sm font-medium leading-snug">{t.goalTitle}</p>
+                {t.goalDescription && (
+                  <p className="text-xs text-muted-foreground leading-snug">{t.goalDescription}</p>
+                )}
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                    {t.timeEstimateMins != null && (
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> {t.timeEstimateMins} min
+                      </span>
+                    )}
+                    {t.parent90DayGoal && (
+                      <span className="italic">↑ {t.parent90DayGoal}</span>
+                    )}
+                  </div>
+                  <div className="flex gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => acceptTemplate(t)}
+                      data-testid={`button-accept-template-${t.id}`}
+                    >
+                      Add to {t.pillar.split(" ")[0]}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => dismissTemplate(t.id)}
+                      data-testid={`button-dismiss-template-${t.id}`}
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -275,8 +335,8 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
                       {g.carriedFromPrev && (
                         <span className="ml-2 text-xs text-muted-foreground italic">carried over</span>
                       )}
-                      {g.suggestedFromNinetyDay && (
-                        <span className="ml-2 text-xs text-info italic">from 90-day</span>
+                      {g.suggestedFromTemplate && (
+                        <span className="ml-2 text-xs text-info italic">from plan</span>
                       )}
                     </div>
                     <button

@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { type Server } from "http";
 import { storage } from "./storage";
 import { getLocalQuoteForDate } from "./quotes";
+import { syncWeeklyGoalTemplatesFromCsv } from "./templates";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
 
@@ -50,6 +51,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const updated = await storage.updateNinetyDayGoal(parseInt(req.params.id), req.body);
       res.json(updated);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.get("/api/weekly-goal-templates/:weekStartDate", async (req, res) => {
+    try {
+      res.json(await storage.getWeeklyGoalTemplates(req.params.weekStartDate));
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.post("/api/weekly-goal-templates/reimport", async (_req, res) => {
+    try {
+      await syncWeeklyGoalTemplatesFromCsv();
+      res.json({ success: true });
     } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 

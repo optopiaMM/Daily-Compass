@@ -2,7 +2,7 @@ import { db } from "./db";
 import { eq, and, desc, sql } from "drizzle-orm";
 import {
   morningSessions, gratitudeEntries, livingPowerfullyScores,
-  weeklyGoals, dailyItems, dailyQuotes,
+  weeklyGoals, weeklyGoalTemplates, dailyItems, dailyQuotes,
   annualTargets, ninetyDayGoals,
   type InsertGratitudeEntry, type InsertLivingPowerfullyScore,
   type InsertDailyItem, type InsertDailyQuote,
@@ -10,6 +10,7 @@ import {
   type MorningSession, type GratitudeEntry, type LivingPowerfullyScore,
   type WeeklyGoal, type DailyItem, type DailyQuote,
   type AnnualTarget, type NinetyDayGoal,
+  type WeeklyGoalTemplate,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -20,6 +21,7 @@ export interface IStorage {
   getAllNinetyDayGoals(): Promise<NinetyDayGoal[]>;
   createNinetyDayGoal(data: InsertNinetyDayGoal): Promise<NinetyDayGoal>;
   updateNinetyDayGoal(id: number, data: Partial<InsertNinetyDayGoal>): Promise<NinetyDayGoal>;
+  getWeeklyGoalTemplates(weekStartDate: string): Promise<WeeklyGoalTemplate[]>;
   getMorningSession(date: string): Promise<MorningSession | undefined>;
   completeMorningSession(date: string): Promise<void>;
   createGratitudeEntry(entry: InsertGratitudeEntry): Promise<GratitudeEntry>;
@@ -93,6 +95,12 @@ export class DatabaseStorage implements IStorage {
   async updateNinetyDayGoal(id: number, data: Partial<InsertNinetyDayGoal>) {
     const [row] = await db.update(ninetyDayGoals).set(data).where(eq(ninetyDayGoals.id, id)).returning();
     return row;
+  }
+
+  async getWeeklyGoalTemplates(weekStartDate: string) {
+    return db.select().from(weeklyGoalTemplates)
+      .where(eq(weeklyGoalTemplates.weekStartDate, weekStartDate))
+      .orderBy(weeklyGoalTemplates.pillar, weeklyGoalTemplates.sortOrder);
   }
 
   async getMorningSession(date: string) {

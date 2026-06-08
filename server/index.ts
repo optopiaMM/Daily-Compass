@@ -4,6 +4,7 @@ import { registerRoutes } from "./routes";
 import { createServer } from "http";
 import { pingDb } from "./db";
 import { seedFromYamlIfEmpty } from "./seed";
+import { syncWeeklyGoalTemplatesFromCsv } from "./templates";
 
 process.on("uncaughtException", (err) => {
   console.error("[uncaughtException]", err?.message ?? err);
@@ -49,6 +50,12 @@ app.use((req, res, next) => {
     await seedFromYamlIfEmpty();
   } catch (err: any) {
     console.error("[boot] seed failed (non-fatal):", err?.message ?? err);
+  }
+
+  try {
+    await syncWeeklyGoalTemplatesFromCsv();
+  } catch (err: any) {
+    console.error("[boot] templates sync failed (non-fatal):", err?.message ?? err);
   }
 
   await registerRoutes(httpServer, app);

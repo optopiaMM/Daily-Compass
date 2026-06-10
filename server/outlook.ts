@@ -5,6 +5,7 @@ const SCOPES = "Calendars.ReadWrite User.Read offline_access openid";
 interface MsConfig {
   clientId: string;
   tenantId: string;
+  authTenant: string;  // tenant segment for the OAuth URLs. "common" allows any work/school + personal accounts.
   clientSecret: string;
   redirectUri: string;
 }
@@ -14,10 +15,11 @@ export function getMsConfig(): MsConfig {
   const tenantId = process.env.MS_TENANT_ID;
   const clientSecret = process.env.MS_CLIENT_SECRET;
   const redirectUri = process.env.MS_REDIRECT_URI || "https://daily-compass-production.up.railway.app/api/outlook/callback";
+  const authTenant = process.env.MS_AUTH_TENANT || "common";
   if (!clientId || !tenantId || !clientSecret) {
     throw new Error("Outlook OAuth not configured. Set MS_CLIENT_ID, MS_TENANT_ID, MS_CLIENT_SECRET env vars.");
   }
-  return { clientId, tenantId, clientSecret, redirectUri };
+  return { clientId, tenantId, authTenant, clientSecret, redirectUri };
 }
 
 export function isMsConfigured(): boolean {
@@ -71,7 +73,7 @@ export function buildAuthorizeUrl(payload: StatePayload): string {
     state,
     prompt: "select_account",
   });
-  return `https://login.microsoftonline.com/${encodeURIComponent(cfg.tenantId)}/oauth2/v2.0/authorize?${params.toString()}`;
+  return `https://login.microsoftonline.com/${encodeURIComponent(cfg.authTenant)}/oauth2/v2.0/authorize?${params.toString()}`;
 }
 
 export function deriveAccountKey(email: string): string {
@@ -102,7 +104,7 @@ export async function exchangeCodeForTokens(code: string): Promise<MsTokenRespon
     code,
     scope: SCOPES,
   });
-  const res = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(cfg.tenantId)}/oauth2/v2.0/token`, {
+  const res = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(cfg.authTenant)}/oauth2/v2.0/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
@@ -124,7 +126,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<MsTokenR
     refresh_token: refreshToken,
     scope: SCOPES,
   });
-  const res = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(cfg.tenantId)}/oauth2/v2.0/token`, {
+  const res = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(cfg.authTenant)}/oauth2/v2.0/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),

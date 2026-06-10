@@ -3,7 +3,7 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import {
   morningSessions, gratitudeEntries, livingPowerfullyScores,
   weeklyGoals, weeklyGoalTemplates, dailyItems, dailyQuotes,
-  annualTargets, ninetyDayGoals,
+  annualTargets, ninetyDayGoals, oauthTokens,
   type InsertGratitudeEntry, type InsertLivingPowerfullyScore,
   type InsertDailyItem, type InsertDailyQuote,
   type InsertAnnualTarget, type InsertNinetyDayGoal,
@@ -11,6 +11,7 @@ import {
   type WeeklyGoal, type DailyItem, type DailyQuote,
   type AnnualTarget, type NinetyDayGoal,
   type WeeklyGoalTemplate,
+  type OauthToken, type InsertOauthToken,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -21,6 +22,9 @@ export interface IStorage {
   getAllNinetyDayGoals(): Promise<NinetyDayGoal[]>;
   createNinetyDayGoal(data: InsertNinetyDayGoal): Promise<NinetyDayGoal>;
   updateNinetyDayGoal(id: number, data: Partial<InsertNinetyDayGoal>): Promise<NinetyDayGoal>;
+  getOauthToken(provider: string): Promise<OauthToken | undefined>;
+  saveOauthToken(data: InsertOauthToken): Promise<OauthToken>;
+  deleteOauthToken(provider: string): Promise<void>;
   getWeeklyGoalTemplates(weekStartDate: string): Promise<WeeklyGoalTemplate[]>;
   getMorningSession(date: string): Promise<MorningSession | undefined>;
   completeMorningSession(date: string): Promise<void>;
@@ -95,6 +99,34 @@ export class DatabaseStorage implements IStorage {
   async updateNinetyDayGoal(id: number, data: Partial<InsertNinetyDayGoal>) {
     const [row] = await db.update(ninetyDayGoals).set(data).where(eq(ninetyDayGoals.id, id)).returning();
     return row;
+  }
+
+  async getOauthToken(provider: string) {
+    const [row] = await db.select().from(oauthTokens).where(eq(oauthTokens.provider, provider)).limit(1);
+    return row;
+  }
+
+  async saveOauthToken(data: InsertOauthToken) {
+    const [row] = await db.insert(oauthTokens)
+      .values(data)
+      .onConflictDoUpdate({
+        target: oauthTokens.provider,
+        set: {
+          accountEmail: data.accountEmail,
+          accountName: data.accountName,
+          accessToken: data.accessToken,
+          refreshToken: data.refreshToken,
+          expiresAt: data.expiresAt,
+          scope: data.scope,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return row;
+  }
+
+  async deleteOauthToken(provider: string) {
+    await db.delete(oauthTokens).where(eq(oauthTokens.provider, provider));
   }
 
   async getWeeklyGoalTemplates(weekStartDate: string) {

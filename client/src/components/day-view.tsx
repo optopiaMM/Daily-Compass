@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Check, ChevronDown, ChevronUp, Plus, Star } from "lucide-react";
 import type { DailyItem, WeeklyGoal } from "@shared/schema";
 import { formatDateNice, getDayOfWeek, getWeekStartDate } from "@/lib/dateUtils";
+import OutlookConnect from "@/components/outlook-connect";
 
 interface DayViewProps { date: string; }
 
@@ -73,6 +74,9 @@ export default function DayView({ date }: DayViewProps) {
             </div>
           </div>
           <Progress value={pct} className="h-1" data-testid="progress-day" />
+          <div className="flex justify-end pt-1">
+            <OutlookConnect />
+          </div>
         </div>
       </div>
 

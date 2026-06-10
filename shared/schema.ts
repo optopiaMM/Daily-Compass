@@ -9,6 +9,23 @@ export interface FailureTrigger {
   then: string;
 }
 
+export const oauthTokens = pgTable("oauth_tokens", {
+  id: serial("id").primaryKey(),
+  provider: text("provider").notNull().unique(),
+  accountEmail: text("account_email"),
+  accountName: text("account_name"),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  scope: text("scope"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertOauthTokenSchema = createInsertSchema(oauthTokens).omit({ id: true, createdAt: true, updatedAt: true });
+export type OauthToken = typeof oauthTokens.$inferSelect;
+export type InsertOauthToken = z.infer<typeof insertOauthTokenSchema>;
+
 export const annualTargets = pgTable("annual_targets", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),

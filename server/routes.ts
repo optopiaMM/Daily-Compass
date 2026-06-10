@@ -3,6 +3,14 @@ import { type Server } from "http";
 import { storage } from "./storage";
 import { getLocalQuoteForDate } from "./quotes";
 import { syncWeeklyGoalTemplatesFromCsv } from "./templates";
+import {
+  buildAuthorizeUrl,
+  exchangeCodeForTokens,
+  getMsUserProfile,
+  isMsConfigured,
+  refreshAccessToken,
+  validateState,
+} from "./outlook";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
 
@@ -64,6 +72,90 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       await syncWeeklyGoalTemplatesFromCsv();
       res.json({ success: true });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Outlook OAuth ----------------------------------------------------------
+  app.get("/api/outlook/connect", async (_req, res) => {
+    try {
+      if (!isMsConfigured()) {
+        return res.status(503).send("Outlook integration not configured. Server is missing Microsoft credentials.");
+      }
+      res.redirect(buildAuthorizeUrl());
+    } catch (error: any) {
+      res.status(500).send(`Failed to start Outlook connect: ${error.message}`);
+    }
+  });
+
+  app.get("/api/outlook/callback", async (req, res) => {
+    try {
+      const { code, state, error, error_description } = req.query as Record<string, string>;
+      if (error) {
+        return res.status(400).send(`Microsoft returned error: ${error}: ${error_description ?? ""}`);
+      }
+      if (!code || !state) {
+        return res.status(400).send("Missing code or state parameter");
+      }
+      if (!validateState(state)) {
+        return res.status(400).send("State token is invalid or expired. Try connecting again.");
+      }
+      const tokenResponse = await exchangeCodeForTokens(code);
+      const profile = await getMsUserProfile(tokenResponse.access_token);
+      const expiresAt = new Date(Date.now() + tokenResponse.expires_in * 1000);
+      await storage.saveOauthToken({
+        provider: "microsoft",
+        accountEmail: profile.mail ?? profile.userPrincipalName ?? null,
+        accountName: profile.displayName ?? null,
+        accessToken: tokenResponse.access_token,
+        refreshToken: tokenResponse.refresh_token,
+        expiresAt,
+        scope: tokenResponse.scope ?? null,
+      });
+      // Bounce back to the app
+      res.redirect("/?outlook=connected");
+    } catch (error: any) {
+      res.status(500).send(`Outlook callback failed: ${error.message}`);
+    }
+  });
+
+  app.get("/api/outlook/status", async (_req, res) => {
+    try {
+      const token = await storage.getOauthToken("microsoft");
+      res.json({
+        configured: isMsConfigured(),
+        connected: Boolean(token),
+        accountEmail: token?.accountEmail ?? null,
+        accountName: token?.accountName ?? null,
+        expiresAt: token?.expiresAt ?? null,
+      });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.post("/api/outlook/disconnect", async (_req, res) => {
+    try {
+      await storage.deleteOauthToken("microsoft");
+      res.json({ success: true });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Lightweight refresh probe (mostly for debugging)
+  app.post("/api/outlook/refresh", async (_req, res) => {
+    try {
+      const token = await storage.getOauthToken("microsoft");
+      if (!token) return res.status(400).json({ message: "Not connected" });
+      const fresh = await refreshAccessToken(token.refreshToken);
+      const profile = await getMsUserProfile(fresh.access_token);
+      const expiresAt = new Date(Date.now() + fresh.expires_in * 1000);
+      await storage.saveOauthToken({
+        provider: "microsoft",
+        accountEmail: profile.mail ?? profile.userPrincipalName ?? null,
+        accountName: profile.displayName ?? null,
+        accessToken: fresh.access_token,
+        refreshToken: fresh.refresh_token ?? token.refreshToken,
+        expiresAt,
+        scope: fresh.scope ?? token.scope,
+      });
+      res.json({ success: true, expiresAt });
     } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 

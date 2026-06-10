@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { storage } from "./storage";
+import { getValidAccessToken } from "./outlook";
 import { listCalendarForDay, createCalendarEvent, type CalendarEvent } from "./graph";
 import type { DailyItem, NinetyDayGoal, WeeklyGoal, WeeklyGoalTemplate } from "@shared/schema";
 
@@ -212,7 +213,24 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
     };
   });
 
-  const events = await listCalendarForDay(date, TIME_ZONE);
+  // Pull busy/free from every connected Outlook account. The first account
+  // where role === "read_write" is where we'll create events later.
+  const allAccounts = await storage.getOauthTokens("microsoft");
+  if (allAccounts.length === 0) throw new Error("No Outlook account connected.");
+  const writeAccount = allAccounts.find((a) => a.role === "read_write") ?? null;
+
+  const events: CalendarEvent[] = [];
+  for (const acct of allAccounts) {
+    try {
+      const accessToken = await getValidAccessToken(acct.accountKey);
+      const list = await listCalendarForDay(accessToken, date, TIME_ZONE);
+      for (const ev of list) {
+        events.push({ ...ev, source: acct.accountEmail ?? acct.accountKey });
+      }
+    } catch (err: any) {
+      console.warn(`[agent] could not load calendar for ${acct.accountKey}: ${err?.message ?? err}`);
+    }
+  }
 
   const dayOfWeek = new Date(`${date}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "long" });
 
@@ -278,30 +296,37 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
     accepted.push(block);
   }
 
-  // 4. Create accepted events in Outlook
+  // 4. Create accepted events in Outlook (only on the read_write account).
   const created: Array<ScheduleBlock & { eventId?: string; webLink?: string }> = [];
-  for (const block of accepted) {
-    const item = goals.find((g) => g.id === block.dailyItemId);
-    const bodyHtml = [
-      `<p><strong>${escapeHtml(block.eventTitle)}</strong></p>`,
-      block.reasoning ? `<p><em>${escapeHtml(block.reasoning)}</em></p>` : "",
-      item?.linkedTemplate?.parent90DayGoal
-        ? `<p>Ladder: ${escapeHtml(item.linkedTemplate.parent90DayGoal)}</p>`
-        : "",
-      `<p style="color:#888;font-size:11px">Scheduled by Daily Compass</p>`,
-    ].join("");
-    try {
-      const ev = await createCalendarEvent({
-        subject: `${block.eventTitle}`,
-        bodyHtml,
-        startISO: block.startTime,
-        endISO: block.endTime,
-        timeZone: TIME_ZONE,
-        categories: ["Daily Compass"],
-      });
-      created.push({ ...block, eventId: ev.id, webLink: ev.webLink });
-    } catch (err: any) {
-      rejected.push({ block, reason: `Outlook create failed: ${err?.message ?? err}` });
+  if (!writeAccount) {
+    for (const block of accepted) {
+      rejected.push({ block, reason: "No Outlook account is marked read_write; can't create events." });
+    }
+  } else {
+    const writeToken = await getValidAccessToken(writeAccount.accountKey);
+    for (const block of accepted) {
+      const item = goals.find((g) => g.id === block.dailyItemId);
+      const bodyHtml = [
+        `<p><strong>${escapeHtml(block.eventTitle)}</strong></p>`,
+        block.reasoning ? `<p><em>${escapeHtml(block.reasoning)}</em></p>` : "",
+        item?.linkedTemplate?.parent90DayGoal
+          ? `<p>Ladder: ${escapeHtml(item.linkedTemplate.parent90DayGoal)}</p>`
+          : "",
+        `<p style="color:#888;font-size:11px">Scheduled by Daily Compass</p>`,
+      ].join("");
+      try {
+        const ev = await createCalendarEvent(writeToken, {
+          subject: `${block.eventTitle}`,
+          bodyHtml,
+          startISO: block.startTime,
+          endISO: block.endTime,
+          timeZone: TIME_ZONE,
+          categories: ["Daily Compass"],
+        });
+        created.push({ ...block, eventId: ev.id, webLink: ev.webLink });
+      } catch (err: any) {
+        rejected.push({ block, reason: `Outlook create failed: ${err?.message ?? err}` });
+      }
     }
   }
 

@@ -5,11 +5,12 @@ import { getLocalQuoteForDate } from "./quotes";
 import { syncWeeklyGoalTemplatesFromCsv } from "./templates";
 import {
   buildAuthorizeUrl,
+  deriveAccountKey,
   exchangeCodeForTokens,
   getMsUserProfile,
   isMsConfigured,
   refreshAccessToken,
-  validateState,
+  validateAndParseState,
 } from "./outlook";
 import { scheduleDayWithClaude } from "./agent";
 
@@ -89,12 +90,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // Outlook OAuth ----------------------------------------------------------
-  app.get("/api/outlook/connect", async (_req, res) => {
+  // Pass ?role=read_only to add a calendar that's just consulted for busy/free.
+  // Without the flag, defaults to read_write if no read_write account exists
+  // yet, otherwise read_only.
+  app.get("/api/outlook/connect", async (req, res) => {
     try {
       if (!isMsConfigured()) {
         return res.status(503).send("Outlook integration not configured. Server is missing Microsoft credentials.");
       }
-      res.redirect(buildAuthorizeUrl());
+      const requestedRole = (req.query.role as string | undefined) === "read_only" ? "read_only" : "read_write";
+      let role: "read_write" | "read_only" = requestedRole;
+      if (requestedRole === "read_write") {
+        const existingWrite = await storage.getReadWriteOauthToken("microsoft");
+        if (existingWrite) role = "read_only";
+      }
+      res.redirect(buildAuthorizeUrl({ role }));
     } catch (error: any) {
       res.status(500).send(`Failed to start Outlook connect: ${error.message}`);
     }
@@ -109,23 +119,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!code || !state) {
         return res.status(400).send("Missing code or state parameter");
       }
-      if (!validateState(state)) {
+      const payload = validateAndParseState(state);
+      if (!payload) {
         return res.status(400).send("State token is invalid or expired. Try connecting again.");
       }
       const tokenResponse = await exchangeCodeForTokens(code);
       const profile = await getMsUserProfile(tokenResponse.access_token);
+      const email = profile.mail ?? profile.userPrincipalName ?? "account@unknown";
+      const accountKey = deriveAccountKey(email);
       const expiresAt = new Date(Date.now() + tokenResponse.expires_in * 1000);
       await storage.saveOauthToken({
         provider: "microsoft",
-        accountEmail: profile.mail ?? profile.userPrincipalName ?? null,
+        accountKey,
+        role: payload.role,
+        accountEmail: email,
         accountName: profile.displayName ?? null,
         accessToken: tokenResponse.access_token,
         refreshToken: tokenResponse.refresh_token,
         expiresAt,
         scope: tokenResponse.scope ?? null,
       });
-      // Bounce back to the app
-      res.redirect("/?outlook=connected");
+      res.redirect(`/?outlook=connected&account=${encodeURIComponent(accountKey)}`);
     } catch (error: any) {
       res.status(500).send(`Outlook callback failed: ${error.message}`);
     }
@@ -133,42 +147,46 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/outlook/status", async (_req, res) => {
     try {
-      const token = await storage.getOauthToken("microsoft");
+      const tokens = await storage.getOauthTokens("microsoft");
       res.json({
         configured: isMsConfigured(),
-        connected: Boolean(token),
-        accountEmail: token?.accountEmail ?? null,
-        accountName: token?.accountName ?? null,
-        expiresAt: token?.expiresAt ?? null,
+        connected: tokens.length > 0,
+        accounts: tokens.map((t) => ({
+          accountKey: t.accountKey,
+          accountEmail: t.accountEmail,
+          accountName: t.accountName,
+          role: t.role,
+          expiresAt: t.expiresAt,
+        })),
       });
     } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 
-  app.post("/api/outlook/disconnect", async (_req, res) => {
+  app.post("/api/outlook/disconnect", async (req, res) => {
     try {
-      await storage.deleteOauthToken("microsoft");
+      const accountKey = req.body?.accountKey as string | undefined;
+      if (!accountKey) return res.status(400).json({ message: "Missing accountKey" });
+      await storage.deleteOauthToken("microsoft", accountKey);
       res.json({ success: true });
     } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 
-  // Lightweight refresh probe (mostly for debugging)
-  app.post("/api/outlook/refresh", async (_req, res) => {
+  app.post("/api/outlook/role", async (req, res) => {
     try {
-      const token = await storage.getOauthToken("microsoft");
-      if (!token) return res.status(400).json({ message: "Not connected" });
-      const fresh = await refreshAccessToken(token.refreshToken);
-      const profile = await getMsUserProfile(fresh.access_token);
-      const expiresAt = new Date(Date.now() + fresh.expires_in * 1000);
-      await storage.saveOauthToken({
-        provider: "microsoft",
-        accountEmail: profile.mail ?? profile.userPrincipalName ?? null,
-        accountName: profile.displayName ?? null,
-        accessToken: fresh.access_token,
-        refreshToken: fresh.refresh_token ?? token.refreshToken,
-        expiresAt,
-        scope: fresh.scope ?? token.scope,
-      });
-      res.json({ success: true, expiresAt });
+      const accountKey = req.body?.accountKey as string | undefined;
+      const role = req.body?.role as string | undefined;
+      if (!accountKey || (role !== "read_write" && role !== "read_only")) {
+        return res.status(400).json({ message: "Missing or invalid accountKey/role" });
+      }
+      if (role === "read_write") {
+        // Demote any existing read_write to read_only first — only one writer at a time.
+        const existing = await storage.getReadWriteOauthToken("microsoft");
+        if (existing && existing.accountKey !== accountKey) {
+          await storage.setOauthRole("microsoft", existing.accountKey, "read_only");
+        }
+      }
+      await storage.setOauthRole("microsoft", accountKey, role);
+      res.json({ success: true });
     } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 

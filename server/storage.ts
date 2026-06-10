@@ -22,9 +22,12 @@ export interface IStorage {
   getAllNinetyDayGoals(): Promise<NinetyDayGoal[]>;
   createNinetyDayGoal(data: InsertNinetyDayGoal): Promise<NinetyDayGoal>;
   updateNinetyDayGoal(id: number, data: Partial<InsertNinetyDayGoal>): Promise<NinetyDayGoal>;
-  getOauthToken(provider: string): Promise<OauthToken | undefined>;
+  getOauthToken(provider: string, accountKey?: string): Promise<OauthToken | undefined>;
+  getOauthTokens(provider: string): Promise<OauthToken[]>;
+  getReadWriteOauthToken(provider: string): Promise<OauthToken | undefined>;
   saveOauthToken(data: InsertOauthToken): Promise<OauthToken>;
-  deleteOauthToken(provider: string): Promise<void>;
+  deleteOauthToken(provider: string, accountKey: string): Promise<void>;
+  setOauthRole(provider: string, accountKey: string, role: string): Promise<void>;
   getWeeklyGoalTemplates(weekStartDate: string): Promise<WeeklyGoalTemplate[]>;
   getMorningSession(date: string): Promise<MorningSession | undefined>;
   completeMorningSession(date: string): Promise<void>;
@@ -101,8 +104,32 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
 
-  async getOauthToken(provider: string) {
-    const [row] = await db.select().from(oauthTokens).where(eq(oauthTokens.provider, provider)).limit(1);
+  async getOauthToken(provider: string, accountKey?: string) {
+    if (accountKey) {
+      const [row] = await db.select().from(oauthTokens)
+        .where(and(eq(oauthTokens.provider, provider), eq(oauthTokens.accountKey, accountKey)))
+        .limit(1);
+      return row;
+    }
+    // Backwards-compatible fallback: most recently created row for the provider
+    const [row] = await db.select().from(oauthTokens)
+      .where(eq(oauthTokens.provider, provider))
+      .orderBy(desc(oauthTokens.createdAt))
+      .limit(1);
+    return row;
+  }
+
+  async getOauthTokens(provider: string) {
+    return db.select().from(oauthTokens)
+      .where(eq(oauthTokens.provider, provider))
+      .orderBy(oauthTokens.createdAt);
+  }
+
+  async getReadWriteOauthToken(provider: string) {
+    const [row] = await db.select().from(oauthTokens)
+      .where(and(eq(oauthTokens.provider, provider), eq(oauthTokens.role, "read_write")))
+      .orderBy(oauthTokens.createdAt)
+      .limit(1);
     return row;
   }
 
@@ -110,7 +137,7 @@ export class DatabaseStorage implements IStorage {
     const [row] = await db.insert(oauthTokens)
       .values(data)
       .onConflictDoUpdate({
-        target: oauthTokens.provider,
+        target: [oauthTokens.provider, oauthTokens.accountKey],
         set: {
           accountEmail: data.accountEmail,
           accountName: data.accountName,
@@ -118,6 +145,7 @@ export class DatabaseStorage implements IStorage {
           refreshToken: data.refreshToken,
           expiresAt: data.expiresAt,
           scope: data.scope,
+          role: data.role,
           updatedAt: new Date(),
         },
       })
@@ -125,8 +153,15 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
 
-  async deleteOauthToken(provider: string) {
-    await db.delete(oauthTokens).where(eq(oauthTokens.provider, provider));
+  async deleteOauthToken(provider: string, accountKey: string) {
+    await db.delete(oauthTokens)
+      .where(and(eq(oauthTokens.provider, provider), eq(oauthTokens.accountKey, accountKey)));
+  }
+
+  async setOauthRole(provider: string, accountKey: string, role: string) {
+    await db.update(oauthTokens)
+      .set({ role, updatedAt: new Date() })
+      .where(and(eq(oauthTokens.provider, provider), eq(oauthTokens.accountKey, accountKey)));
   }
 
   async getWeeklyGoalTemplates(weekStartDate: string) {

@@ -1,5 +1,3 @@
-import { getValidAccessToken } from "./outlook";
-
 const GRAPH = "https://graph.microsoft.com/v1.0";
 
 export interface CalendarEvent {
@@ -8,6 +6,7 @@ export interface CalendarEvent {
   endISO: string;
   showAs?: string;
   isAllDay?: boolean;
+  source?: string;
 }
 
 /**
@@ -15,8 +14,7 @@ export interface CalendarEvent {
  * timezone. Uses the calendarView endpoint so all-day items and recurring
  * series instances are expanded to concrete occurrences.
  */
-export async function listCalendarForDay(dateISO: string, tz = "Europe/London"): Promise<CalendarEvent[]> {
-  const accessToken = await getValidAccessToken();
+export async function listCalendarForDay(accessToken: string, dateISO: string, tz = "Europe/London"): Promise<CalendarEvent[]> {
   const startOfDay = `${dateISO}T00:00:00`;
   const endOfDay = `${dateISO}T23:59:59`;
   const url = `${GRAPH}/me/calendarView?startDateTime=${encodeURIComponent(startOfDay)}&endDateTime=${encodeURIComponent(endOfDay)}&$select=subject,start,end,showAs,isAllDay&$top=200&$orderby=start/dateTime`;
@@ -43,14 +41,13 @@ export async function listCalendarForDay(dateISO: string, tz = "Europe/London"):
 export interface CreateEventInput {
   subject: string;
   bodyHtml?: string;
-  startISO: string;  // local-zone wall time, e.g. "2026-06-10T09:00:00"
+  startISO: string;
   endISO: string;
   timeZone?: string;
   categories?: string[];
 }
 
-export async function createCalendarEvent(input: CreateEventInput): Promise<{ id: string; webLink?: string }> {
-  const accessToken = await getValidAccessToken();
+export async function createCalendarEvent(accessToken: string, input: CreateEventInput): Promise<{ id: string; webLink?: string }> {
   const payload = {
     subject: input.subject,
     body: { contentType: "HTML", content: input.bodyHtml ?? "" },

@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, date, serial, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, date, serial, timestamp, jsonb, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -11,7 +11,9 @@ export interface FailureTrigger {
 
 export const oauthTokens = pgTable("oauth_tokens", {
   id: serial("id").primaryKey(),
-  provider: text("provider").notNull().unique(),
+  provider: text("provider").notNull(),
+  accountKey: text("account_key").notNull().default("primary"),
+  role: text("role").notNull().default("read_write"),
   accountEmail: text("account_email"),
   accountName: text("account_name"),
   accessToken: text("access_token").notNull(),
@@ -20,7 +22,9 @@ export const oauthTokens = pgTable("oauth_tokens", {
   scope: text("scope"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  providerAccountUnique: unique("oauth_tokens_provider_account_unique").on(table.provider, table.accountKey),
+}));
 
 export const insertOauthTokenSchema = createInsertSchema(oauthTokens).omit({ id: true, createdAt: true, updatedAt: true });
 export type OauthToken = typeof oauthTokens.$inferSelect;

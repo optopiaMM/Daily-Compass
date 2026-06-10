@@ -28,32 +28,40 @@ function stateSecret(): string {
   return process.env.SESSION_SECRET || "fallback-session-secret-change-me";
 }
 
-export function makeState(): string {
+export interface StatePayload {
+  role: "read_write" | "read_only";
+}
+
+export function makeState(payload: StatePayload): string {
   const ts = Date.now();
   const nonce = crypto.randomBytes(8).toString("hex");
-  const data = `${ts}.${nonce}`;
+  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const data = `${ts}.${nonce}.${body}`;
   const hmac = crypto.createHmac("sha256", stateSecret()).update(data).digest("hex");
   return Buffer.from(`${data}.${hmac}`).toString("base64url");
 }
 
-export function validateState(state: string): boolean {
+export function validateAndParseState(state: string): StatePayload | null {
   try {
     const decoded = Buffer.from(state, "base64url").toString();
     const parts = decoded.split(".");
-    if (parts.length !== 3) return false;
-    const [ts, nonce, hmac] = parts;
-    const expected = crypto.createHmac("sha256", stateSecret()).update(`${ts}.${nonce}`).digest("hex");
-    if (!crypto.timingSafeEqual(Buffer.from(hmac, "hex"), Buffer.from(expected, "hex"))) return false;
+    if (parts.length !== 4) return null;
+    const [ts, nonce, body, hmac] = parts;
+    const expected = crypto.createHmac("sha256", stateSecret()).update(`${ts}.${nonce}.${body}`).digest("hex");
+    if (!crypto.timingSafeEqual(Buffer.from(hmac, "hex"), Buffer.from(expected, "hex"))) return null;
     const age = Date.now() - parseInt(ts, 10);
-    return age >= 0 && age < 10 * 60 * 1000;
+    if (age < 0 || age >= 10 * 60 * 1000) return null;
+    const payload = JSON.parse(Buffer.from(body, "base64url").toString()) as StatePayload;
+    if (payload.role !== "read_write" && payload.role !== "read_only") return null;
+    return payload;
   } catch {
-    return false;
+    return null;
   }
 }
 
-export function buildAuthorizeUrl(): string {
+export function buildAuthorizeUrl(payload: StatePayload): string {
   const cfg = getMsConfig();
-  const state = makeState();
+  const state = makeState(payload);
   const params = new URLSearchParams({
     client_id: cfg.clientId,
     response_type: "code",
@@ -64,6 +72,15 @@ export function buildAuthorizeUrl(): string {
     prompt: "select_account",
   });
   return `https://login.microsoftonline.com/${encodeURIComponent(cfg.tenantId)}/oauth2/v2.0/authorize?${params.toString()}`;
+}
+
+export function deriveAccountKey(email: string): string {
+  const localPart = email.split("@")[0] ?? email;
+  return localPart
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    || "account";
 }
 
 export interface MsTokenResponse {
@@ -126,14 +143,14 @@ export interface MsUserProfile {
 }
 
 /**
- * Returns a working access token for Microsoft Graph, refreshing via the
- * stored refresh token if the current one expires within the next 60s.
+ * Returns a working access token for a specific Outlook account, refreshing
+ * via the stored refresh token if the current one expires within the next 60s.
  * The fresh access + refresh tokens are persisted back to the DB.
  */
-export async function getValidAccessToken(): Promise<string> {
+export async function getValidAccessToken(accountKey: string): Promise<string> {
   const { storage } = await import("./storage");
-  const token = await storage.getOauthToken("microsoft");
-  if (!token) throw new Error("Outlook is not connected.");
+  const token = await storage.getOauthToken("microsoft", accountKey);
+  if (!token) throw new Error(`Outlook account "${accountKey}" is not connected.`);
   const expiresAtMs = new Date(token.expiresAt).getTime();
   const stillFreshFor = expiresAtMs - Date.now();
   if (stillFreshFor > 60_000) return token.accessToken;
@@ -142,6 +159,8 @@ export async function getValidAccessToken(): Promise<string> {
   const newExpiresAt = new Date(Date.now() + refreshed.expires_in * 1000);
   await storage.saveOauthToken({
     provider: "microsoft",
+    accountKey: token.accountKey,
+    role: token.role,
     accountEmail: token.accountEmail,
     accountName: token.accountName,
     accessToken: refreshed.access_token,

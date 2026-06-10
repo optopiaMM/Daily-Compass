@@ -11,6 +11,7 @@ import {
   refreshAccessToken,
   validateState,
 } from "./outlook";
+import { scheduleDayWithClaude } from "./agent";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
 
@@ -60,6 +61,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const updated = await storage.updateNinetyDayGoal(parseInt(req.params.id), req.body);
       res.json(updated);
     } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.post("/api/agent/schedule-day", async (req, res) => {
+    try {
+      const date = req.body?.date as string | undefined;
+      if (!date) return res.status(400).json({ message: "Missing 'date' in body." });
+      const result = await scheduleDayWithClaude(date);
+      res.json(result);
+    } catch (error: any) {
+      console.error("[agent] schedule-day error:", error?.message ?? error);
+      res.status(500).json({ message: error?.message ?? "Scheduling failed." });
+    }
   });
 
   app.get("/api/weekly-goal-templates/:weekStartDate", async (req, res) => {

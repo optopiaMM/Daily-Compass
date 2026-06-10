@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { Check, ChevronDown, ChevronUp, Plus, Star } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Plus, Star, Sparkles, ExternalLink } from "lucide-react";
 import type { DailyItem, WeeklyGoal } from "@shared/schema";
 import { formatDateNice, getDayOfWeek, getWeekStartDate } from "@/lib/dateUtils";
 import OutlookConnect from "@/components/outlook-connect";
@@ -45,6 +45,31 @@ export default function DayView({ date }: DayViewProps) {
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
+  interface ScheduleResult {
+    ok: boolean;
+    scheduled: Array<{ dailyItemId: number; eventTitle: string; startTime: string; endTime: string; reasoning: string; eventId?: string; webLink?: string }>;
+    unscheduled: Array<{ dailyItemId: number; reason: string }>;
+    rejected: Array<{ block: { eventTitle: string; startTime: string; endTime: string }; reason: string }>;
+    notes: string;
+  }
+  const [scheduleResult, setScheduleResult] = useState<ScheduleResult | null>(null);
+
+  const scheduleDay = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/agent/schedule-day", { date });
+      return (await res.json()) as ScheduleResult;
+    },
+    onSuccess: (result) => {
+      setScheduleResult(result);
+      const count = result.scheduled.length;
+      toast({
+        title: count === 0 ? "Nothing scheduled" : `Scheduled ${count} block${count === 1 ? "" : "s"}`,
+        description: result.notes || (count ? "Check your Outlook calendar." : "Claude couldn't fit anything today."),
+      });
+    },
+    onError: (err: Error) => toast({ title: "Schedule failed", description: err.message, variant: "destructive" }),
+  });
+
   const mainGoal = items?.find((it) => it.type === "main");
   const priorities = useMemo(() => {
     if (!items) return [];
@@ -74,9 +99,67 @@ export default function DayView({ date }: DayViewProps) {
             </div>
           </div>
           <Progress value={pct} className="h-1" data-testid="progress-day" />
-          <div className="flex justify-end pt-1">
+          <div className="flex items-center justify-between gap-2 pt-1">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs gap-1.5"
+              onClick={() => scheduleDay.mutate()}
+              disabled={scheduleDay.isPending}
+              data-testid="button-schedule-day"
+            >
+              <Sparkles className="w-3 h-3" />
+              {scheduleDay.isPending ? "Scheduling..." : "Schedule today with Claude"}
+            </Button>
             <OutlookConnect />
           </div>
+          {scheduleResult && (
+            <div className="bg-card border rounded-lg p-3 mt-2 text-xs space-y-2" data-testid="schedule-result">
+              {scheduleResult.notes && (
+                <p className="italic text-muted-foreground">{scheduleResult.notes}</p>
+              )}
+              {scheduleResult.scheduled.length > 0 && (
+                <div className="space-y-1">
+                  <p className="font-medium text-success">Scheduled in Outlook:</p>
+                  {scheduleResult.scheduled.map((s, i) => (
+                    <div key={i} className="flex items-baseline justify-between gap-2">
+                      <span>
+                        <span className="tabular-nums text-muted-foreground">{s.startTime.slice(11, 16)}–{s.endTime.slice(11, 16)}</span>{" "}
+                        {s.eventTitle}
+                      </span>
+                      {s.webLink && (
+                        <a href={s.webLink} target="_blank" rel="noreferrer" className="text-info inline-flex items-center gap-0.5">
+                          open <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {scheduleResult.unscheduled.length > 0 && (
+                <div className="space-y-1">
+                  <p className="font-medium text-muted-foreground">Didn't fit:</p>
+                  {scheduleResult.unscheduled.map((u, i) => (
+                    <p key={i} className="text-muted-foreground">id={u.dailyItemId}: {u.reason}</p>
+                  ))}
+                </div>
+              )}
+              {scheduleResult.rejected.length > 0 && (
+                <div className="space-y-1">
+                  <p className="font-medium text-destructive">Rejected by validator:</p>
+                  {scheduleResult.rejected.map((r, i) => (
+                    <p key={i} className="text-destructive/80">{r.block.eventTitle}: {r.reason}</p>
+                  ))}
+                </div>
+              )}
+              <button
+                onClick={() => setScheduleResult(null)}
+                className="text-muted-foreground hover:text-foreground underline text-xs"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

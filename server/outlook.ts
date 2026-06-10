@@ -125,6 +125,33 @@ export interface MsUserProfile {
   userPrincipalName?: string;
 }
 
+/**
+ * Returns a working access token for Microsoft Graph, refreshing via the
+ * stored refresh token if the current one expires within the next 60s.
+ * The fresh access + refresh tokens are persisted back to the DB.
+ */
+export async function getValidAccessToken(): Promise<string> {
+  const { storage } = await import("./storage");
+  const token = await storage.getOauthToken("microsoft");
+  if (!token) throw new Error("Outlook is not connected.");
+  const expiresAtMs = new Date(token.expiresAt).getTime();
+  const stillFreshFor = expiresAtMs - Date.now();
+  if (stillFreshFor > 60_000) return token.accessToken;
+
+  const refreshed = await refreshAccessToken(token.refreshToken);
+  const newExpiresAt = new Date(Date.now() + refreshed.expires_in * 1000);
+  await storage.saveOauthToken({
+    provider: "microsoft",
+    accountEmail: token.accountEmail,
+    accountName: token.accountName,
+    accessToken: refreshed.access_token,
+    refreshToken: refreshed.refresh_token ?? token.refreshToken,
+    expiresAt: newExpiresAt,
+    scope: refreshed.scope ?? token.scope,
+  });
+  return refreshed.access_token;
+}
+
 export async function getMsUserProfile(accessToken: string): Promise<MsUserProfile> {
   const res = await fetch("https://graph.microsoft.com/v1.0/me", {
     headers: { Authorization: `Bearer ${accessToken}` },

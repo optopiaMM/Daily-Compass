@@ -11,6 +11,7 @@
     "db:push": "tsx ./node_modules/drizzle-kit/bin.cjs push"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.104.1",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-accordion": "^1.2.4",
     "@radix-ui/react-alert-dialog": "^1.1.7",

@@ -123,7 +123,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!payload) {
         return res.status(400).send("State token is invalid or expired. Try connecting again.");
       }
-      const tokenResponse = await exchangeCodeForTokens(code);
+      const tokenResponse = await exchangeCodeForTokens(code, payload.role);
       const profile = await getMsUserProfile(tokenResponse.access_token);
       const email = profile.mail ?? profile.userPrincipalName ?? "account@unknown";
       const accountKey = deriveAccountKey(email);

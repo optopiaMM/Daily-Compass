@@ -1,6 +1,11 @@
 import crypto from "crypto";
 
-const SCOPES = "Calendars.ReadWrite User.Read offline_access openid";
+const SCOPES_READ_WRITE = "Calendars.ReadWrite User.Read offline_access openid";
+const SCOPES_READ_ONLY = "Calendars.Read User.Read offline_access openid";
+
+function scopesFor(role: "read_write" | "read_only"): string {
+  return role === "read_only" ? SCOPES_READ_ONLY : SCOPES_READ_WRITE;
+}
 
 interface MsConfig {
   clientId: string;
@@ -69,7 +74,7 @@ export function buildAuthorizeUrl(payload: StatePayload): string {
     response_type: "code",
     redirect_uri: cfg.redirectUri,
     response_mode: "query",
-    scope: SCOPES,
+    scope: scopesFor(payload.role),
     state,
     prompt: "select_account",
   });
@@ -94,7 +99,7 @@ export interface MsTokenResponse {
   id_token?: string;
 }
 
-export async function exchangeCodeForTokens(code: string): Promise<MsTokenResponse> {
+export async function exchangeCodeForTokens(code: string, role: "read_write" | "read_only"): Promise<MsTokenResponse> {
   const cfg = getMsConfig();
   const body = new URLSearchParams({
     client_id: cfg.clientId,
@@ -102,7 +107,7 @@ export async function exchangeCodeForTokens(code: string): Promise<MsTokenRespon
     redirect_uri: cfg.redirectUri,
     grant_type: "authorization_code",
     code,
-    scope: SCOPES,
+    scope: scopesFor(role),
   });
   const res = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(cfg.authTenant)}/oauth2/v2.0/token`, {
     method: "POST",
@@ -116,7 +121,7 @@ export async function exchangeCodeForTokens(code: string): Promise<MsTokenRespon
   return json as MsTokenResponse;
 }
 
-export async function refreshAccessToken(refreshToken: string): Promise<MsTokenResponse> {
+export async function refreshAccessToken(refreshToken: string, role: "read_write" | "read_only"): Promise<MsTokenResponse> {
   const cfg = getMsConfig();
   const body = new URLSearchParams({
     client_id: cfg.clientId,
@@ -124,7 +129,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<MsTokenR
     redirect_uri: cfg.redirectUri,
     grant_type: "refresh_token",
     refresh_token: refreshToken,
-    scope: SCOPES,
+    scope: scopesFor(role),
   });
   const res = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(cfg.authTenant)}/oauth2/v2.0/token`, {
     method: "POST",
@@ -157,7 +162,7 @@ export async function getValidAccessToken(accountKey: string): Promise<string> {
   const stillFreshFor = expiresAtMs - Date.now();
   if (stillFreshFor > 60_000) return token.accessToken;
 
-  const refreshed = await refreshAccessToken(token.refreshToken);
+  const refreshed = await refreshAccessToken(token.refreshToken, token.role as "read_write" | "read_only");
   const newExpiresAt = new Date(Date.now() + refreshed.expires_in * 1000);
   await storage.saveOauthToken({
     provider: "microsoft",

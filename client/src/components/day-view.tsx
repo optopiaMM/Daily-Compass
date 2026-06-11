@@ -47,6 +47,8 @@ export default function DayView({ date }: DayViewProps) {
 
   interface ScheduleResult {
     ok: boolean;
+    lunch: { startTime: string; endTime: string; reasoning: string; eventId?: string; webLink?: string } | null;
+    lunchRejected?: { block: { startTime: string; endTime: string }; reason: string };
     scheduled: Array<{ dailyItemId: number; eventTitle: string; startTime: string; endTime: string; reasoning: string; eventId?: string; webLink?: string }>;
     unscheduled: Array<{ dailyItemId: number; reason: string }>;
     rejected: Array<{ block: { eventTitle: string; startTime: string; endTime: string }; reason: string }>;
@@ -118,9 +120,22 @@ export default function DayView({ date }: DayViewProps) {
               {scheduleResult.notes && (
                 <p className="italic text-muted-foreground">{scheduleResult.notes}</p>
               )}
-              {scheduleResult.scheduled.length > 0 && (
+              {(scheduleResult.scheduled.length > 0 || scheduleResult.lunch) && (
                 <div className="space-y-1">
                   <p className="font-medium text-success">Scheduled in Outlook:</p>
+                  {scheduleResult.lunch && (
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span>
+                        <span className="tabular-nums text-muted-foreground">{scheduleResult.lunch.startTime.slice(11, 16)}–{scheduleResult.lunch.endTime.slice(11, 16)}</span>{" "}
+                        Lunch
+                      </span>
+                      {scheduleResult.lunch.webLink && (
+                        <a href={scheduleResult.lunch.webLink} target="_blank" rel="noreferrer" className="text-info inline-flex items-center gap-0.5">
+                          open <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
+                    </div>
+                  )}
                   {scheduleResult.scheduled.map((s, i) => (
                     <div key={i} className="flex items-baseline justify-between gap-2">
                       <span>
@@ -134,6 +149,12 @@ export default function DayView({ date }: DayViewProps) {
                       )}
                     </div>
                   ))}
+                </div>
+              )}
+              {scheduleResult.lunchRejected && (
+                <div className="space-y-1">
+                  <p className="font-medium text-destructive">Lunch rejected:</p>
+                  <p className="text-destructive/80">{scheduleResult.lunchRejected.reason}</p>
                 </div>
               )}
               {scheduleResult.unscheduled.length > 0 && (

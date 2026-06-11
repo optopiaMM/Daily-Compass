@@ -6,8 +6,9 @@ import type { DailyItem, NinetyDayGoal, WeeklyGoal, WeeklyGoalTemplate } from "@
 
 const MODEL = "claude-opus-4-8";
 const TIME_ZONE = "Europe/London";
-const LUNCH_START = 12; // 12:00
-const LUNCH_END = 13;   // 13:00
+const LUNCH_DURATION_MIN = 30;
+const LUNCH_DEFAULT_START = "12:00";
+const LUNCH_LATEST_START = "13:00";
 
 interface ScheduleBlock {
   dailyItemId: number;
@@ -22,7 +23,14 @@ interface UnscheduledBlock {
   reason: string;
 }
 
+interface LunchBlock {
+  startTime: string;
+  endTime: string;
+  reasoning: string;
+}
+
 interface ScheduleResponse {
+  lunch: LunchBlock | null;
   scheduled: ScheduleBlock[];
   unscheduled: UnscheduledBlock[];
   notes: string;
@@ -32,6 +40,22 @@ const SCHEDULE_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
+    lunch: {
+      anyOf: [
+        { type: "null" },
+        {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            startTime: { type: "string", description: "ISO 8601 local wall time for lunch start, e.g. 2026-06-11T12:00:00" },
+            endTime: { type: "string", description: "ISO 8601 local wall time for lunch end" },
+            reasoning: { type: "string" },
+          },
+          required: ["startTime", "endTime", "reasoning"],
+        },
+      ],
+      description: "30-minute lunch block. null only if the user's existing calendar already has a lunch event today.",
+    },
     scheduled: {
       type: "array",
       items: {
@@ -61,7 +85,7 @@ const SCHEDULE_SCHEMA = {
     },
     notes: { type: "string", description: "Brief overall comment on the plan." },
   },
-  required: ["scheduled", "unscheduled", "notes"],
+  required: ["lunch", "scheduled", "unscheduled", "notes"],
 } as const;
 
 const SYSTEM_PROMPT = `You are the scheduling assistant inside Daily Compass, a personal planning app.
@@ -70,9 +94,9 @@ Your job: take the user's prioritised goals AND to-dos for a single day and plac
 
 HARD RULES
 - Working hours window will be supplied per request (start and end in HH:MM, Europe/London local time).
-- Leave ${LUNCH_START}:00–${LUNCH_END}:00 clear for lunch.
+- Lunch: a ${LUNCH_DURATION_MIN}-minute lunch break which will ALSO be booked into the user's Outlook calendar. Default start time ${LUNCH_DEFAULT_START}. If a 45-minute work block would butt into that window, you MAY delay lunch — but lunch must start no later than ${LUNCH_LATEST_START} (latest possible window: ${LUNCH_LATEST_START}–13:30). Pick a single ${LUNCH_DURATION_MIN}-minute slot, return it in the "lunch" field of the output, and DO NOT schedule any work blocks across it. If the user's existing calendar already shows a lunch / meal event today, set "lunch": null and treat that existing event as the lunch break.
 - Never overlap an existing calendar event (you'll be given them).
-- Never overlap two scheduled blocks with each other.
+- Never overlap two scheduled blocks (or lunch) with each other.
 - Schedule items of type "main", "priority", AND "todo".
 
 DEFAULT DURATIONS
@@ -88,6 +112,8 @@ PLACEMENT GUIDANCE
 
 OUTPUT
 - Return a single JSON object matching the schema you've been given.
+- "lunch" is either {startTime, endTime, reasoning} for the lunch break, or null if the user's existing calendar already contains one.
+- "scheduled" is the list of Main / Priority / To-do blocks placed in the calendar.
 - Times are local wall times in ISO 8601 like "2026-06-10T09:00:00" (no timezone suffix; the host applies Europe/London).
 - If a goal or to-do genuinely won't fit, list it in "unscheduled" with a one-line reason.
 - "notes" is one sentence summarising the plan or any caveats. Keep it short.`;
@@ -200,6 +226,8 @@ function getWorkingHoursForDay(_date: string): { start: string; end: string } {
 
 interface RunResult {
   ok: boolean;
+  lunch: (LunchBlock & { eventId?: string; webLink?: string }) | null;
+  lunchRejected?: { block: LunchBlock; reason: string };
   scheduled: Array<ScheduleBlock & { eventId?: string; webLink?: string }>;
   unscheduled: UnscheduledBlock[];
   rejected: Array<{ block: ScheduleBlock; reason: string }>;
@@ -304,6 +332,31 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
   const rejected: Array<{ block: ScheduleBlock; reason: string }> = [];
   const accepted: ScheduleBlock[] = [];
 
+  // Validate the lunch block first; if accepted, treat it as another event range
+  // so work blocks proposed across it are rejected as overlaps.
+  let acceptedLunch: LunchBlock | null = null;
+  let lunchRejected: { block: LunchBlock; reason: string } | undefined;
+  if (parsed.lunch) {
+    const lunchStart = parseLocalIso(parsed.lunch.startTime);
+    const lunchEnd = parseLocalIso(parsed.lunch.endTime);
+    const lunchStartHhmm = parsed.lunch.startTime.slice(11, 16);
+    const durationMin = (lunchEnd - lunchStart) / 60000;
+    if (!Number.isFinite(lunchStart) || !Number.isFinite(lunchEnd) || lunchEnd <= lunchStart) {
+      lunchRejected = { block: parsed.lunch, reason: "Invalid start/end time." };
+    } else if (!inWorkingHours(parsed.lunch.startTime, parsed.lunch.endTime, workingHours.start, workingHours.end)) {
+      lunchRejected = { block: parsed.lunch, reason: `Lunch falls outside working hours (${workingHours.start}–${workingHours.end}).` };
+    } else if (hhmmToMinutes(lunchStartHhmm) > hhmmToMinutes(LUNCH_LATEST_START)) {
+      lunchRejected = { block: parsed.lunch, reason: `Lunch must start no later than ${LUNCH_LATEST_START}.` };
+    } else if (Math.abs(durationMin - LUNCH_DURATION_MIN) > 1) {
+      lunchRejected = { block: parsed.lunch, reason: `Lunch must be ${LUNCH_DURATION_MIN} minutes (was ${durationMin}).` };
+    } else if (eventRanges.some((r) => overlaps(lunchStart, lunchEnd, r.start, r.end))) {
+      lunchRejected = { block: parsed.lunch, reason: "Lunch overlaps an existing calendar event." };
+    } else {
+      acceptedLunch = parsed.lunch;
+      eventRanges.push({ start: lunchStart, end: lunchEnd });
+    }
+  }
+
   for (const block of parsed.scheduled) {
     const startMs = parseLocalIso(block.startTime);
     const endMs = parseLocalIso(block.endTime);
@@ -328,12 +381,38 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
 
   // 4. Create accepted events in Outlook (only on the read_write account).
   const created: Array<ScheduleBlock & { eventId?: string; webLink?: string }> = [];
+  let createdLunch: (LunchBlock & { eventId?: string; webLink?: string }) | null = null;
   if (!writeAccount) {
     for (const block of accepted) {
       rejected.push({ block, reason: "No Outlook account is marked read_write; can't create events." });
     }
+    if (acceptedLunch) {
+      lunchRejected = { block: acceptedLunch, reason: "No Outlook account is marked read_write; can't create events." };
+    }
   } else {
     const writeToken = await getValidAccessToken(writeAccount.accountKey);
+
+    // Create the lunch event first.
+    if (acceptedLunch) {
+      try {
+        const ev = await createCalendarEvent(writeToken, {
+          subject: "Lunch",
+          bodyHtml: [
+            `<p><strong>Lunch break</strong></p>`,
+            acceptedLunch.reasoning ? `<p><em>${escapeHtml(acceptedLunch.reasoning)}</em></p>` : "",
+            `<p style="color:#888;font-size:11px">Scheduled by Daily Compass</p>`,
+          ].join(""),
+          startISO: acceptedLunch.startTime,
+          endISO: acceptedLunch.endTime,
+          timeZone: TIME_ZONE,
+          categories: ["Daily Compass"],
+        });
+        createdLunch = { ...acceptedLunch, eventId: ev.id, webLink: ev.webLink };
+      } catch (err: any) {
+        lunchRejected = { block: acceptedLunch, reason: `Outlook create failed: ${err?.message ?? err}` };
+      }
+    }
+
     for (const block of accepted) {
       const item = goals.find((g) => g.id === block.dailyItemId);
       const bodyHtml = [
@@ -362,6 +441,8 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
 
   return {
     ok: true,
+    lunch: createdLunch,
+    lunchRejected,
     scheduled: created,
     unscheduled: parsed.unscheduled ?? [],
     rejected,

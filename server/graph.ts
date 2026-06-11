@@ -29,13 +29,21 @@ export async function listCalendarForDay(accessToken: string, dateISO: string, t
     throw new Error(`Graph calendarView failed: ${res.status} ${text}`);
   }
   const body = (await res.json()) as { value?: any[] };
-  return (body.value ?? []).map((e) => ({
-    subject: e.subject ?? "(no subject)",
-    startISO: `${e.start?.dateTime}Z`.replace(/\.\d+Z$/, "Z"),
-    endISO: `${e.end?.dateTime}Z`.replace(/\.\d+Z$/, "Z"),
-    showAs: e.showAs,
-    isAllDay: e.isAllDay,
-  }));
+  return (body.value ?? []).map((e) => {
+    // Microsoft Graph returns local wall-times when the Prefer:outlook.timezone
+    // header is set, but without any timezone suffix. Strip fractional seconds
+    // and DON'T append "Z" - tagging a local time with "Z" makes Claude (and
+    // anything else reading it as ISO 8601) treat it as UTC.
+    const cleanLocal = (dt: string | undefined): string =>
+      (dt ?? "").replace(/\.\d+$/, "");
+    return {
+      subject: e.subject ?? "(no subject)",
+      startISO: cleanLocal(e.start?.dateTime),
+      endISO: cleanLocal(e.end?.dateTime),
+      showAs: e.showAs,
+      isAllDay: e.isAllDay,
+    };
+  });
 }
 
 export interface CreateEventInput {

@@ -162,13 +162,22 @@ function parseLocalIso(iso: string): number {
 }
 
 function inWorkingHours(startIso: string, endIso: string): boolean {
-  const start = new Date(`${startIso}+01:00`);
-  const end = new Date(`${endIso}+01:00`);
-  const day = start.getUTCDay();
-  if (day === 0 || day === 6) return false; // Sun/Sat
-  const startH = start.getUTCHours() - 1; // crude BST offset
-  const endH = end.getUTCHours() - 1 + (end.getUTCMinutes() > 0 ? 1 : 0);
-  return startH >= WORK_START && endH <= WORK_END;
+  // Claude returns naked local wall times like "2026-06-11T08:00:00".
+  // Parse the hours/minutes directly from the string rather than round-tripping
+  // through Date (which previously double-counted the BST offset and treated
+  // 08:00 as 06:00).
+  if (startIso.slice(0, 10) !== endIso.slice(0, 10)) return false;
+  const [startH, startM] = startIso.slice(11, 16).split(":").map(Number);
+  const [endH, endM] = endIso.slice(11, 16).split(":").map(Number);
+
+  // Day-of-week from the date string (Mon=1 ... Sun=0).
+  const d = new Date(`${startIso.slice(0, 10)}T12:00:00Z`);
+  const day = d.getUTCDay();
+  if (day === 0 || day === 6) return false;
+
+  const startMinutes = startH * 60 + startM;
+  const endMinutes = endH * 60 + endM;
+  return startMinutes >= WORK_START * 60 && endMinutes <= WORK_END * 60;
 }
 
 interface RunResult {

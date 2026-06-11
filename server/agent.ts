@@ -6,8 +6,6 @@ import type { DailyItem, NinetyDayGoal, WeeklyGoal, WeeklyGoalTemplate } from "@
 
 const MODEL = "claude-opus-4-8";
 const TIME_ZONE = "Europe/London";
-const WORK_START = 8;   // 08:00
-const WORK_END = 18;    // 18:00
 const LUNCH_START = 12; // 12:00
 const LUNCH_END = 13;   // 13:00
 
@@ -68,42 +66,45 @@ const SCHEDULE_SCHEMA = {
 
 const SYSTEM_PROMPT = `You are the scheduling assistant inside Daily Compass, a personal planning app.
 
-Your job: take the user's prioritised goals for a single day and place each one into a free block in their Outlook calendar.
+Your job: take the user's prioritised goals AND to-dos for a single day and place each one into a free block in their Outlook calendar.
 
 HARD RULES
-- Working hours: ${String(WORK_START).padStart(2, "0")}:00 to ${String(WORK_END).padStart(2, "0")}:00 in the user's local time zone (Europe/London).
+- Working hours window will be supplied per request (start and end in HH:MM, Europe/London local time).
 - Leave ${LUNCH_START}:00–${LUNCH_END}:00 clear for lunch.
 - Never overlap an existing calendar event (you'll be given them).
 - Never overlap two scheduled blocks with each other.
-- Schedule only goals of type "main" or "priority". Do not schedule items of type "todo".
+- Schedule items of type "main", "priority", AND "todo".
 
 DEFAULT DURATIONS
-- Main Goal: 90 minutes — unless a linked weekly action specifies time_estimate_mins, in which case use that.
-- Priority: 60 minutes — unless a linked weekly action specifies time_estimate_mins, in which case use that.
+- Main Goal: 45 minutes — unless a linked weekly action specifies time_estimate_mins, in which case use that.
+- Priority: 45 minutes — unless a linked weekly action specifies time_estimate_mins, in which case use that.
+- To-do: 15 minutes (fixed).
 
 PLACEMENT GUIDANCE
-- Main Goal in the morning, in the largest contiguous block available.
-- Priorities by rank (P1 before P2 before P3), filling the next-best free slots.
-- Respect the user's "protected_rule" verbatim — if it reserves a morning slot for content/strategy work, do not put client delivery or admin work there.
+- Main Goal in the morning, in the largest contiguous block available within the working hours window.
+- Priorities by rank (P1 before P2 before P3), filling the next-best free slots after the Main Goal.
+- To-dos go in 15-minute slots INTERLEAVED between the longer Main/Priority work blocks — use them as short breathers between deep work. Don't cluster all the to-dos at the end of the day.
 - Round all start times to the nearest quarter-hour.
 
 OUTPUT
 - Return a single JSON object matching the schema you've been given.
 - Times are local wall times in ISO 8601 like "2026-06-10T09:00:00" (no timezone suffix; the host applies Europe/London).
-- If a goal genuinely won't fit, list it in "unscheduled" with a one-line reason.
+- If a goal or to-do genuinely won't fit, list it in "unscheduled" with a one-line reason.
 - "notes" is one sentence summarising the plan or any caveats. Keep it short.`;
 
 interface ScheduleInput {
   date: string;
   dayOfWeek: string;
-  protectedRule: string | null;
   ninetyDayGoalLabel: string | null;
+  workingHoursStart: string;  // "HH:MM"
+  workingHoursEnd: string;
   events: CalendarEvent[];
   goals: Array<{
     id: number;
     type: "main" | "priority" | "todo";
     rank: number | null;
     text: string;
+    completed: boolean;
     linkedWeeklyGoal?: WeeklyGoal | null;
     linkedTemplate?: WeeklyGoalTemplate | null;
   }>;
@@ -116,10 +117,20 @@ function buildUserMessage(input: ScheduleInput): string {
         .join("\n")
     : "(no existing events today)";
 
-  const goalLines = input.goals
-    .filter((g) => g.type === "main" || g.type === "priority")
+  // Skip already-completed items — no point scheduling something done.
+  const open = input.goals.filter((g) => !g.completed);
+  // Order: Main first, then priorities by rank, then to-dos.
+  const ordered = [
+    ...open.filter((g) => g.type === "main"),
+    ...open.filter((g) => g.type === "priority").sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99)),
+    ...open.filter((g) => g.type === "todo"),
+  ];
+  const goalLines = ordered
     .map((g) => {
-      const tier = g.type === "main" ? "Main Goal" : `Priority ${g.rank ?? "?"}`;
+      const tier =
+        g.type === "main" ? "Main Goal" :
+        g.type === "priority" ? `Priority ${g.rank ?? "?"}` :
+        "To-do (15 min)";
       const templateBits = g.linkedTemplate
         ? ` [linked to weekly action: "${g.linkedTemplate.goalTitle}"` +
           (g.linkedTemplate.timeEstimateMins ? `, time_estimate_mins=${g.linkedTemplate.timeEstimateMins}` : "") +
@@ -135,16 +146,14 @@ function buildUserMessage(input: ScheduleInput): string {
   return [
     `Date to plan: ${input.dayOfWeek}, ${input.date}`,
     `Timezone: ${TIME_ZONE}`,
+    `Working hours window: ${input.workingHoursStart} to ${input.workingHoursEnd}`,
     input.ninetyDayGoalLabel ? `Quarter context: ${input.ninetyDayGoalLabel}` : null,
-    "",
-    "Protected rule (from the user's 90-day plan):",
-    input.protectedRule ? input.protectedRule : "(none set)",
     "",
     "Existing calendar events for today:",
     eventLines,
     "",
-    "Goals to schedule (skip type=todo, those stay as a list):",
-    goalLines || "(no main/priority goals to schedule)",
+    "Goals + to-dos to schedule (Main + Priorities at 45 min each, to-dos at 15 min each, interleaved):",
+    goalLines || "(nothing to schedule)",
   ]
     .filter((line) => line !== null)
     .join("\n");
@@ -161,23 +170,32 @@ function parseLocalIso(iso: string): number {
   return new Date(`${iso}+01:00`).getTime();
 }
 
-function inWorkingHours(startIso: string, endIso: string): boolean {
-  // Claude returns naked local wall times like "2026-06-11T08:00:00".
-  // Parse the hours/minutes directly from the string rather than round-tripping
-  // through Date (which previously double-counted the BST offset and treated
-  // 08:00 as 06:00).
+function hhmmToMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function inWorkingHours(startIso: string, endIso: string, startHhmm: string, endHhmm: string): boolean {
   if (startIso.slice(0, 10) !== endIso.slice(0, 10)) return false;
-  const [startH, startM] = startIso.slice(11, 16).split(":").map(Number);
-  const [endH, endM] = endIso.slice(11, 16).split(":").map(Number);
+  const startMinutes = hhmmToMinutes(startIso.slice(11, 16));
+  const endMinutes = hhmmToMinutes(endIso.slice(11, 16));
 
   // Day-of-week from the date string (Mon=1 ... Sun=0).
   const d = new Date(`${startIso.slice(0, 10)}T12:00:00Z`);
   const day = d.getUTCDay();
   if (day === 0 || day === 6) return false;
 
-  const startMinutes = startH * 60 + startM;
-  const endMinutes = endH * 60 + endM;
-  return startMinutes >= WORK_START * 60 && endMinutes <= WORK_END * 60;
+  return startMinutes >= hhmmToMinutes(startHhmm) && endMinutes <= hhmmToMinutes(endHhmm);
+}
+
+/**
+ * Returns the working-hours window for a given date.
+ * Currently defaults to 08:00–18:00. Once the Family Life ICS feed is wired
+ * in, this should narrow to (end-of-morning-school-run, start-of-afternoon-
+ * school-run) on school-run days.
+ */
+function getWorkingHoursForDay(_date: string): { start: string; end: string } {
+  return { start: "08:00", end: "18:00" };
 }
 
 interface RunResult {
@@ -200,6 +218,7 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
   const weekStart = getWeekStartDate(date);
   const allWeeklyGoals = await storage.getWeeklyGoals(weekStart);
   const allTemplates = await storage.getWeeklyGoalTemplates(weekStart);
+  const workingHours = getWorkingHoursForDay(date);
 
   const goals = items.map((it) => {
     let linkedWeeklyGoal: WeeklyGoal | null = null;
@@ -217,6 +236,7 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
       type: it.type as "main" | "priority" | "todo",
       rank: it.rank ?? null,
       text: it.text,
+      completed: it.completed,
       linkedWeeklyGoal,
       linkedTemplate,
     };
@@ -246,8 +266,9 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
   const userMessage = buildUserMessage({
     date,
     dayOfWeek,
-    protectedRule: ninetyDay?.protectedRule ?? null,
     ninetyDayGoalLabel: ninetyDay?.periodLabel ?? null,
+    workingHoursStart: workingHours.start,
+    workingHoursEnd: workingHours.end,
     events,
     goals,
   });
@@ -290,8 +311,8 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
       rejected.push({ block, reason: "Invalid start/end time." });
       continue;
     }
-    if (!inWorkingHours(block.startTime, block.endTime)) {
-      rejected.push({ block, reason: "Outside working hours / weekend." });
+    if (!inWorkingHours(block.startTime, block.endTime, workingHours.start, workingHours.end)) {
+      rejected.push({ block, reason: `Outside working hours (${workingHours.start}–${workingHours.end}) or weekend.` });
       continue;
     }
     if (eventRanges.some((r) => overlaps(startMs, endMs, r.start, r.end))) {

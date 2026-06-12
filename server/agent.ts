@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { storage } from "./storage";
 import { getValidAccessToken } from "./outlook";
 import { listCalendarForDay, createCalendarEvent, type CalendarEvent } from "./graph";
+import { listIcsEventsForDay, findSchoolRunBounds } from "./ics";
 import type { DailyItem, NinetyDayGoal, WeeklyGoal, WeeklyGoalTemplate } from "@shared/schema";
 
 const MODEL = "claude-opus-4-8";
@@ -215,13 +216,19 @@ function inWorkingHours(startIso: string, endIso: string, startHhmm: string, end
 }
 
 /**
- * Returns the working-hours window for a given date.
- * Currently defaults to 08:00–18:00. Once the Family Life ICS feed is wired
- * in, this should narrow to (end-of-morning-school-run, start-of-afternoon-
- * school-run) on school-run days.
+ * Returns the working-hours window for the day, narrowed by school-run
+ * events in any configured ICS feed. If the day has a morning school
+ * drop-off, the start of work is pushed to the end of that drop-off. If
+ * there's an afternoon pick-up, the end of work is pulled back to its
+ * start. Otherwise defaults to 08:00–18:00.
  */
-function getWorkingHoursForDay(_date: string): { start: string; end: string } {
-  return { start: "08:00", end: "18:00" };
+function workingHoursFromEvents(events: CalendarEvent[]): { start: string; end: string } {
+  const { morningEnd, afternoonStart } = findSchoolRunBounds(events);
+  const defaultStart = "08:00";
+  const defaultEnd = "18:00";
+  const start = morningEnd ? morningEnd.slice(11, 16) : defaultStart;
+  const end = afternoonStart ? afternoonStart.slice(11, 16) : defaultEnd;
+  return { start, end };
 }
 
 interface RunResult {
@@ -246,7 +253,6 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
   const weekStart = getWeekStartDate(date);
   const allWeeklyGoals = await storage.getWeeklyGoals(weekStart);
   const allTemplates = await storage.getWeeklyGoalTemplates(weekStart);
-  const workingHours = getWorkingHoursForDay(date);
 
   const goals = items.map((it) => {
     let linkedWeeklyGoal: WeeklyGoal | null = null;
@@ -286,6 +292,31 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
       }
     } catch (err: any) {
       console.warn(`[agent] could not load calendar for ${acct.accountKey}: ${err?.message ?? err}`);
+    }
+  }
+
+  // Pull additional calendars from configured ICS feeds (e.g. Family Life).
+  // Used both as busy/free signal and to detect school-run events that
+  // narrow the working-hours window.
+  const feedEventsByFeed: CalendarEvent[][] = [];
+  const feeds = await storage.getActiveCalendarFeeds();
+  for (const feed of feeds) {
+    try {
+      const list = await listIcsEventsForDay(feed.url, date, feed.name);
+      feedEventsByFeed.push(list);
+      for (const ev of list) events.push(ev);
+    } catch (err: any) {
+      console.warn(`[agent] could not load ICS feed ${feed.name}: ${err?.message ?? err}`);
+    }
+  }
+  // Derive working hours from the first feed (typically Family Life) that
+  // has school-run events. If none do, default to 08:00–18:00.
+  let workingHours = { start: "08:00", end: "18:00" };
+  for (const list of feedEventsByFeed) {
+    const candidate = workingHoursFromEvents(list);
+    if (candidate.start !== "08:00" || candidate.end !== "18:00") {
+      workingHours = candidate;
+      break;
     }
   }
 

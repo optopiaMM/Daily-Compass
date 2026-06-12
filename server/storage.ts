@@ -3,7 +3,7 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import {
   morningSessions, gratitudeEntries, livingPowerfullyScores,
   weeklyGoals, weeklyGoalTemplates, dailyItems, dailyQuotes,
-  annualTargets, ninetyDayGoals, oauthTokens,
+  annualTargets, ninetyDayGoals, oauthTokens, calendarFeeds,
   type InsertGratitudeEntry, type InsertLivingPowerfullyScore,
   type InsertDailyItem, type InsertDailyQuote,
   type InsertAnnualTarget, type InsertNinetyDayGoal,
@@ -12,6 +12,7 @@ import {
   type AnnualTarget, type NinetyDayGoal,
   type WeeklyGoalTemplate,
   type OauthToken, type InsertOauthToken,
+  type CalendarFeed,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -28,6 +29,7 @@ export interface IStorage {
   saveOauthToken(data: InsertOauthToken): Promise<OauthToken>;
   deleteOauthToken(provider: string, accountKey: string): Promise<void>;
   setOauthRole(provider: string, accountKey: string, role: string): Promise<void>;
+  getActiveCalendarFeeds(): Promise<CalendarFeed[]>;
   getWeeklyGoalTemplates(weekStartDate: string): Promise<WeeklyGoalTemplate[]>;
   getMorningSession(date: string): Promise<MorningSession | undefined>;
   completeMorningSession(date: string): Promise<void>;
@@ -162,6 +164,12 @@ export class DatabaseStorage implements IStorage {
     await db.update(oauthTokens)
       .set({ role, updatedAt: new Date() })
       .where(and(eq(oauthTokens.provider, provider), eq(oauthTokens.accountKey, accountKey)));
+  }
+
+  async getActiveCalendarFeeds() {
+    return db.select().from(calendarFeeds)
+      .where(eq(calendarFeeds.active, true))
+      .orderBy(calendarFeeds.createdAt);
   }
 
   async getWeeklyGoalTemplates(weekStartDate: string) {

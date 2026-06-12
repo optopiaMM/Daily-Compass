@@ -9,6 +9,19 @@ export interface FailureTrigger {
   then: string;
 }
 
+export const calendarFeeds = pgTable("calendar_feeds", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  kind: text("kind").notNull().default("ics"),
+  url: text("url").notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertCalendarFeedSchema = createInsertSchema(calendarFeeds).omit({ id: true, createdAt: true });
+export type CalendarFeed = typeof calendarFeeds.$inferSelect;
+export type InsertCalendarFeed = z.infer<typeof insertCalendarFeedSchema>;
+
 export const oauthTokens = pgTable("oauth_tokens", {
   id: serial("id").primaryKey(),
   provider: text("provider").notNull(),

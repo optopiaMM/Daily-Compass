@@ -64,6 +64,47 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 
+  app.get("/api/agent/debug-day/:date", async (req, res) => {
+    try {
+      const { storage } = await import("./storage");
+      const { getValidAccessToken } = await import("./outlook");
+      const { listCalendarForDay } = await import("./graph");
+      const { listIcsEventsForDay, findSchoolRunBounds } = await import("./ics");
+      const date = req.params.date;
+      const items = await storage.getDailyItems(date);
+      const accts = await storage.getOauthTokens("microsoft");
+      const allEvents: any[] = [];
+      for (const a of accts) {
+        try {
+          const tok = await getValidAccessToken(a.accountKey);
+          const evs = await listCalendarForDay(tok, date);
+          for (const e of evs) allEvents.push({ ...e, source: a.accountEmail ?? a.accountKey });
+        } catch (err: any) {
+          allEvents.push({ source: a.accountKey, fetchError: err?.message ?? String(err) });
+        }
+      }
+      const feeds = await storage.getActiveCalendarFeeds();
+      let schoolRunBounds: any = null;
+      for (const f of feeds) {
+        try {
+          const evs = await listIcsEventsForDay(f.url, date, f.name);
+          for (const e of evs) allEvents.push(e);
+          if (!schoolRunBounds) schoolRunBounds = findSchoolRunBounds(evs);
+        } catch (err: any) {
+          allEvents.push({ source: f.name, fetchError: err?.message ?? String(err) });
+        }
+      }
+      res.json({
+        date,
+        items: items.map((i) => ({ id: i.id, type: i.type, rank: i.rank, text: i.text, completed: i.completed })),
+        accounts: accts.map((a) => ({ accountKey: a.accountKey, accountEmail: a.accountEmail, role: a.role })),
+        feeds: feeds.map((f) => ({ name: f.name, kind: f.kind })),
+        events: allEvents,
+        schoolRunBounds,
+      });
+    } catch (error: any) { res.status(500).json({ message: error?.message ?? String(error) }); }
+  });
+
   app.post("/api/agent/schedule-day", async (req, res) => {
     try {
       const date = req.body?.date as string | undefined;

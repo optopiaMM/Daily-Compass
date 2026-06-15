@@ -69,7 +69,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const { storage } = await import("./storage");
       const { getValidAccessToken } = await import("./outlook");
       const { listCalendarForDay } = await import("./graph");
-      const { listIcsEventsForDay, findSchoolRunBounds } = await import("./ics");
+      const { listIcsEventsForDay, findSchoolRunBounds, isRelevantToUser } = await import("./ics");
       const date = req.params.date;
       const items = await storage.getDailyItems(date);
       const accts = await storage.getOauthTokens("microsoft");
@@ -88,8 +88,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       for (const f of feeds) {
         try {
           const evs = await listIcsEventsForDay(f.url, date, f.name);
-          for (const e of evs) allEvents.push(e);
-          if (!schoolRunBounds) schoolRunBounds = findSchoolRunBounds(evs);
+          const filtered = evs.filter((e) => isRelevantToUser(e.subject, "Mark"));
+          for (const e of filtered) allEvents.push(e);
+          if (!schoolRunBounds) schoolRunBounds = findSchoolRunBounds(filtered);
         } catch (err: any) {
           allEvents.push({ source: f.name, fetchError: err?.message ?? String(err) });
         }

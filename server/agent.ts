@@ -2,11 +2,12 @@ import Anthropic from "@anthropic-ai/sdk";
 import { storage } from "./storage";
 import { getValidAccessToken } from "./outlook";
 import { listCalendarForDay, createCalendarEvent, deleteCalendarEvent, type CalendarEvent } from "./graph";
-import { listIcsEventsForDay, findSchoolRunBounds } from "./ics";
+import { listIcsEventsForDay, findSchoolRunBounds, isRelevantToUser } from "./ics";
 import type { DailyItem, NinetyDayGoal, WeeklyGoal, WeeklyGoalTemplate } from "@shared/schema";
 
 const MODEL = "claude-opus-4-8";
 const TIME_ZONE = "Europe/London";
+const USER_NAME = "Mark";
 const LUNCH_DURATION_MIN = 30;
 const LUNCH_DEFAULT_START = "12:00";
 const LUNCH_LATEST_START = "13:00";
@@ -330,14 +331,17 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
 
   // Pull additional calendars from configured ICS feeds (e.g. Family Life).
   // Used both as busy/free signal and to detect school-run events that
-  // narrow the working-hours window.
+  // narrow the working-hours window. Family-Life-style feeds are shared
+  // family calendars; filter to events that are actually relevant to the
+  // user (named, or transport duties they perform).
   const feedEventsByFeed: CalendarEvent[][] = [];
   const feeds = await storage.getActiveCalendarFeeds();
   for (const feed of feeds) {
     try {
       const list = await listIcsEventsForDay(feed.url, date, feed.name);
-      feedEventsByFeed.push(list);
-      for (const ev of list) events.push(ev);
+      const filtered = list.filter((e) => isRelevantToUser(e.subject, USER_NAME));
+      feedEventsByFeed.push(filtered);
+      for (const ev of filtered) events.push(ev);
     } catch (err: any) {
       console.warn(`[agent] could not load ICS feed ${feed.name}: ${err?.message ?? err}`);
     }

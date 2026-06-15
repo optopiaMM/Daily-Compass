@@ -77,6 +77,21 @@ function toNakedLocal(d: Date): string {
 
 const DROP_OFF_RE = /school\s*drop/i;
 const PICK_UP_RE = /school\s*pick/i;
+const TRANSPORT_RE = /^(school\s*(drop\s*off|pick\s*up)|drop\s*off|pick\s*up)\b/i;
+
+/**
+ * Family Life is a shared family calendar — events tagged for Lizzie /
+ * the kids shouldn't show up as busy for Mark. Keep only events where
+ * Mark is named OR which look like transport duties Mark performs
+ * (school drop-off / pick-up, "Drop off X", "Pick up X").
+ */
+export function isRelevantToUser(subject: string, userName: string): boolean {
+  if (!subject) return false;
+  const lower = subject.toLowerCase();
+  if (lower.includes(userName.toLowerCase())) return true;
+  if (TRANSPORT_RE.test(subject)) return true;
+  return false;
+}
 
 /**
  * From a list of family-life events for the day, extract the morning

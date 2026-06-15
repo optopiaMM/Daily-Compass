@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { storage } from "./storage";
 import { getValidAccessToken } from "./outlook";
-import { listCalendarForDay, createCalendarEvent, type CalendarEvent } from "./graph";
+import { listCalendarForDay, createCalendarEvent, deleteCalendarEvent, type CalendarEvent } from "./graph";
 import { listIcsEventsForDay, findSchoolRunBounds } from "./ics";
 import type { DailyItem, NinetyDayGoal, WeeklyGoal, WeeklyGoalTemplate } from "@shared/schema";
 
@@ -10,6 +10,34 @@ const TIME_ZONE = "Europe/London";
 const LUNCH_DURATION_MIN = 30;
 const LUNCH_DEFAULT_START = "12:00";
 const LUNCH_LATEST_START = "13:00";
+const DAILY_COMPASS_CATEGORY = "Daily Compass";
+
+const FITNESS_START_HHMM = "05:30";
+const FITNESS_DURATION_MIN = 60;
+const CHI_KUNG_START_HHMM = "05:15";
+const CHI_KUNG_DURATION_MIN = 15;
+
+const CHI_KUNG_RE = /\bchi\s*kung\b/i;
+const FITNESS_RE = /\b(weights?|spin|run(?:ning)?|cycle|cycling|bike|gym|swim(?:ming)?|yoga|pilates|HIIT|workout)\b/i;
+
+type FitnessKind = "fitness" | "chi_kung" | null;
+function classifyFitness(text: string): FitnessKind {
+  if (CHI_KUNG_RE.test(text)) return "chi_kung";
+  if (FITNESS_RE.test(text)) return "fitness";
+  return null;
+}
+
+function hhmmAddMinutes(hhmm: string, minutes: number): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const total = h * 60 + m + minutes;
+  const newH = Math.floor(total / 60) % 24;
+  const newM = total % 60;
+  return `${String(newH).padStart(2, "0")}:${String(newM).padStart(2, "0")}`;
+}
+
+function makeIso(date: string, hhmm: string): string {
+  return `${date}T${hhmm}:00`;
+}
 
 interface ScheduleBlock {
   dailyItemId: number;
@@ -99,6 +127,7 @@ HARD RULES
 - Never overlap an existing calendar event (you'll be given them).
 - Never overlap two scheduled blocks (or lunch) with each other.
 - Schedule items of type "main", "priority", AND "todo".
+- Fitness sessions (weights, spin, run, cycle, gym, swim, yoga, etc.) and Chi Kung sessions are handled separately BEFORE you're called — they're already removed from the list you see. Don't second-guess them.
 
 DEFAULT DURATIONS
 - Main Goal: 45 minutes — unless a linked weekly action specifies time_estimate_mins, in which case use that.
@@ -123,9 +152,10 @@ interface ScheduleInput {
   date: string;
   dayOfWeek: string;
   ninetyDayGoalLabel: string | null;
-  workingHoursStart: string;  // "HH:MM"
+  workingHoursStart: string;
   workingHoursEnd: string;
   events: CalendarEvent[];
+  lunchAlreadyExists: boolean;
   goals: Array<{
     id: number;
     type: "main" | "priority" | "todo";
@@ -175,6 +205,7 @@ function buildUserMessage(input: ScheduleInput): string {
     `Timezone: ${TIME_ZONE}`,
     `Working hours window: ${input.workingHoursStart} to ${input.workingHoursEnd}`,
     input.ninetyDayGoalLabel ? `Quarter context: ${input.ninetyDayGoalLabel}` : null,
+    input.lunchAlreadyExists ? `NOTE: a lunch event already exists on the calendar today; return "lunch": null.` : null,
     "",
     "Existing calendar events for today:",
     eventLines,
@@ -236,6 +267,8 @@ interface RunResult {
   lunch: (LunchBlock & { eventId?: string; webLink?: string }) | null;
   lunchRejected?: { block: LunchBlock; reason: string };
   scheduled: Array<ScheduleBlock & { eventId?: string; webLink?: string }>;
+  fitness: Array<{ dailyItemId: number; eventTitle: string; startTime: string; endTime: string; kind: FitnessKind; eventId?: string; webLink?: string }>;
+  alreadyScheduled: Array<{ dailyItemId: number; eventTitle: string; startTime: string; endTime: string }>;
   unscheduled: UnscheduledBlock[];
   rejected: Array<{ block: ScheduleBlock; reason: string }>;
   notes: string;
@@ -322,6 +355,79 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
 
   const dayOfWeek = new Date(`${date}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "long" });
 
+  // Build the busy-range list once - used by both the fitness pre-scheduler
+  // and the post-Claude validator.
+  const eventRanges = events
+    .filter((e) => !e.isAllDay)
+    .map((e) => ({ start: parseLocalIso(e.startISO.replace("Z", "")), end: parseLocalIso(e.endISO.replace("Z", "")) }));
+
+  // ---- DEDUP & FITNESS PRE-SCHEDULING ----
+  // 1. Find existing Daily Compass events on the calendar today. Items whose
+  //    title matches one of those are already scheduled and shouldn't be
+  //    re-booked or sent to Claude.
+  const existingDcEvents = events.filter((e) => (e.categories ?? []).includes(DAILY_COMPASS_CATEGORY));
+  const dcSubjects = new Set(existingDcEvents.map((e) => e.subject.trim().toLowerCase()));
+  const dcSubjectMap = new Map(existingDcEvents.map((e) => [e.subject.trim().toLowerCase(), e]));
+
+  const alreadyScheduled: Array<{ dailyItemId: number; eventTitle: string; startTime: string; endTime: string; webLink?: string }> = [];
+  const remaining: typeof goals = [];
+  for (const g of goals) {
+    if (g.completed) continue;
+    const key = g.text.trim().toLowerCase();
+    const existing = dcSubjectMap.get(key);
+    if (existing && existing.id) {
+      alreadyScheduled.push({
+        dailyItemId: g.id,
+        eventTitle: existing.subject,
+        startTime: existing.startISO,
+        endTime: existing.endISO,
+      });
+    } else {
+      remaining.push(g);
+    }
+  }
+
+  // 2. Pre-schedule fitness + chi kung deterministically (before Claude).
+  type FitnessSchedule = { dailyItemId: number; eventTitle: string; startTime: string; endTime: string; kind: FitnessKind };
+  const preFitness: FitnessSchedule[] = [];
+  const fitnessRejected: Array<{ block: { dailyItemId: number; eventTitle: string; startTime: string; endTime: string }; reason: string }> = [];
+
+  const chiKungItems = remaining.filter((g) => classifyFitness(g.text) === "chi_kung");
+  const fitnessItems = remaining.filter((g) => classifyFitness(g.text) === "fitness");
+  const goalsForClaude = remaining.filter((g) => classifyFitness(g.text) === null);
+
+  function scheduleFitnessBlock(item: typeof remaining[number], startHhmm: string, durationMin: number, kind: FitnessKind) {
+    const endHhmm = hhmmAddMinutes(startHhmm, durationMin);
+    const startIso = makeIso(date, startHhmm);
+    const endIso = makeIso(date, endHhmm);
+    const startMs = parseLocalIso(startIso);
+    const endMs = parseLocalIso(endIso);
+    // Check no overlap with existing events
+    const conflict = eventRanges.find((r) => overlaps(startMs, endMs, r.start, r.end));
+    if (conflict) {
+      fitnessRejected.push({ block: { dailyItemId: item.id, eventTitle: item.text, startTime: startIso, endTime: endIso }, reason: "Overlaps an existing calendar event." });
+      return;
+    }
+    preFitness.push({ dailyItemId: item.id, eventTitle: item.text, startTime: startIso, endTime: endIso, kind });
+    eventRanges.push({ start: startMs, end: endMs });
+  }
+
+  // Chi kung: each one at 05:15-05:30 (single slot)
+  for (const it of chiKungItems) scheduleFitnessBlock(it, CHI_KUNG_START_HHMM, CHI_KUNG_DURATION_MIN, "chi_kung");
+
+  // Fitness sessions: sequence starting at 05:30, each 60 min
+  let fitnessSlot = FITNESS_START_HHMM;
+  for (const it of fitnessItems) {
+    scheduleFitnessBlock(it, fitnessSlot, FITNESS_DURATION_MIN, "fitness");
+    fitnessSlot = hhmmAddMinutes(fitnessSlot, FITNESS_DURATION_MIN);
+  }
+
+  // Check if lunch already exists; if so, tell Claude not to schedule one.
+  const existingLunch = existingDcEvents.find((e) => e.subject.trim().toLowerCase() === "lunch");
+
+  // Build the eventRanges parseLocalIso list (it's used in validation too).
+  // It was constructed above with strip-Z; now we've also pushed fitness ranges.
+
   const userMessage = buildUserMessage({
     date,
     dayOfWeek,
@@ -329,7 +435,8 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
     workingHoursStart: workingHours.start,
     workingHoursEnd: workingHours.end,
     events,
-    goals,
+    goals: goalsForClaude,
+    lunchAlreadyExists: !!existingLunch,
   });
 
   // 2. Call Claude (Opus 4.8 + adaptive thinking + structured output, cached system)
@@ -355,11 +462,8 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
     throw new Error(`Could not parse Claude's schedule JSON: ${err?.message ?? err}`);
   }
 
-  // 3. Validate against existing events + each other + working hours
-  const eventRanges = events
-    .filter((e) => !e.isAllDay)
-    .map((e) => ({ start: parseLocalIso(e.startISO.replace("Z", "")), end: parseLocalIso(e.endISO.replace("Z", "")) }));
-
+  // 3. Validate Claude's blocks against existing events + each other + working hours.
+  // eventRanges already includes existing events + the pre-scheduled fitness blocks.
   const rejected: Array<{ block: ScheduleBlock; reason: string }> = [];
   const accepted: ScheduleBlock[] = [];
 
@@ -412,6 +516,7 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
 
   // 4. Create accepted events in Outlook (only on the read_write account).
   const created: Array<ScheduleBlock & { eventId?: string; webLink?: string }> = [];
+  const createdFitness: Array<{ dailyItemId: number; eventTitle: string; startTime: string; endTime: string; kind: FitnessKind; eventId?: string; webLink?: string }> = [];
   let createdLunch: (LunchBlock & { eventId?: string; webLink?: string }) | null = null;
   if (!writeAccount) {
     for (const block of accepted) {
@@ -422,6 +527,24 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
     }
   } else {
     const writeToken = await getValidAccessToken(writeAccount.accountKey);
+
+    // Create fitness + chi kung blocks first (deterministic, no reminders).
+    for (const f of preFitness) {
+      try {
+        const ev = await createCalendarEvent(writeToken, {
+          subject: f.eventTitle,
+          bodyHtml: `<p>${escapeHtml(f.eventTitle)}</p><p style="color:#888;font-size:11px">Scheduled by Daily Compass · ${f.kind === "chi_kung" ? "Chi Kung" : "Fitness"} (no reminder)</p>`,
+          startISO: f.startTime,
+          endISO: f.endTime,
+          timeZone: TIME_ZONE,
+          categories: [DAILY_COMPASS_CATEGORY],
+          reminderMinutesBeforeStart: null,
+        });
+        createdFitness.push({ ...f, eventId: ev.id, webLink: ev.webLink });
+      } catch (err: any) {
+        fitnessRejected.push({ block: { dailyItemId: f.dailyItemId, eventTitle: f.eventTitle, startTime: f.startTime, endTime: f.endTime }, reason: `Outlook create failed: ${err?.message ?? err}` });
+      }
+    }
 
     // Create the lunch event first.
     if (acceptedLunch) {
@@ -470,13 +593,24 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
     }
   }
 
+  // Combine fitness rejections into the main rejected list for the UI.
+  const allRejected: Array<{ block: ScheduleBlock; reason: string }> = [
+    ...rejected,
+    ...fitnessRejected.map((r) => ({
+      block: { dailyItemId: r.block.dailyItemId, eventTitle: r.block.eventTitle, startTime: r.block.startTime, endTime: r.block.endTime, reasoning: "" },
+      reason: r.reason,
+    })),
+  ];
+
   return {
     ok: true,
     lunch: createdLunch,
     lunchRejected,
     scheduled: created,
+    fitness: createdFitness,
+    alreadyScheduled,
     unscheduled: parsed.unscheduled ?? [],
-    rejected,
+    rejected: allRejected,
     notes: parsed.notes ?? "",
     modelUsage: {
       input_tokens: response.usage.input_tokens,
@@ -488,6 +622,28 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+}
+
+export async function clearDailyCompassEventsForDay(date: string): Promise<{ deleted: number; failed: number; subjects: string[] }> {
+  const accts = await storage.getOauthTokens("microsoft");
+  const writeAccount = accts.find((a) => a.role === "read_write");
+  if (!writeAccount) throw new Error("No read_write Outlook account.");
+  const token = await getValidAccessToken(writeAccount.accountKey);
+  const events = await listCalendarForDay(token, date, TIME_ZONE);
+  const dc = events.filter((e) => (e.categories ?? []).includes(DAILY_COMPASS_CATEGORY));
+  let deleted = 0, failed = 0;
+  const subjects: string[] = [];
+  for (const e of dc) {
+    if (!e.id) continue;
+    try {
+      await deleteCalendarEvent(token, e.id);
+      deleted++;
+      subjects.push(e.subject);
+    } catch {
+      failed++;
+    }
+  }
+  return { deleted, failed, subjects };
 }
 
 function getWeekStartDate(dateStr: string): string {

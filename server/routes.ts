@@ -12,7 +12,7 @@ import {
   refreshAccessToken,
   validateAndParseState,
 } from "./outlook";
-import { scheduleDayWithClaude } from "./agent";
+import { scheduleDayWithClaude, clearDailyCompassEventsForDay } from "./agent";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
 
@@ -103,6 +103,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         schoolRunBounds,
       });
     } catch (error: any) { res.status(500).json({ message: error?.message ?? String(error) }); }
+  });
+
+  app.post("/api/agent/clear-day", async (req, res) => {
+    try {
+      const date = req.body?.date as string | undefined;
+      if (!date) return res.status(400).json({ message: "Missing 'date'." });
+      const result = await clearDailyCompassEventsForDay(date);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error?.message ?? "Clear failed." });
+    }
   });
 
   app.post("/api/agent/schedule-day", async (req, res) => {

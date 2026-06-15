@@ -50,6 +50,8 @@ export default function DayView({ date }: DayViewProps) {
     lunch: { startTime: string; endTime: string; reasoning: string; eventId?: string; webLink?: string } | null;
     lunchRejected?: { block: { startTime: string; endTime: string }; reason: string };
     scheduled: Array<{ dailyItemId: number; eventTitle: string; startTime: string; endTime: string; reasoning: string; eventId?: string; webLink?: string }>;
+    fitness: Array<{ dailyItemId: number; eventTitle: string; startTime: string; endTime: string; kind: string | null; eventId?: string; webLink?: string }>;
+    alreadyScheduled: Array<{ dailyItemId: number; eventTitle: string; startTime: string; endTime: string }>;
     unscheduled: Array<{ dailyItemId: number; reason: string }>;
     rejected: Array<{ block: { eventTitle: string; startTime: string; endTime: string }; reason: string }>;
     notes: string;
@@ -120,9 +122,22 @@ export default function DayView({ date }: DayViewProps) {
               {scheduleResult.notes && (
                 <p className="italic text-muted-foreground">{scheduleResult.notes}</p>
               )}
-              {(scheduleResult.scheduled.length > 0 || scheduleResult.lunch) && (
+              {(scheduleResult.scheduled.length > 0 || scheduleResult.lunch || (scheduleResult.fitness?.length ?? 0) > 0) && (
                 <div className="space-y-1">
                   <p className="font-medium text-success">Scheduled in Outlook:</p>
+                  {scheduleResult.fitness?.map((f, i) => (
+                    <div key={`f-${i}`} className="flex items-baseline justify-between gap-2">
+                      <span>
+                        <span className="tabular-nums text-muted-foreground">{f.startTime.slice(11, 16)}–{f.endTime.slice(11, 16)}</span>{" "}
+                        {f.eventTitle} <span className="text-[10px] italic text-muted-foreground">({f.kind === "chi_kung" ? "chi kung" : "fitness"}, no reminder)</span>
+                      </span>
+                      {f.webLink && (
+                        <a href={f.webLink} target="_blank" rel="noreferrer" className="text-info inline-flex items-center gap-0.5">
+                          open <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
+                    </div>
+                  ))}
                   {scheduleResult.lunch && (
                     <div className="flex items-baseline justify-between gap-2">
                       <span>
@@ -155,6 +170,17 @@ export default function DayView({ date }: DayViewProps) {
                 <div className="space-y-1">
                   <p className="font-medium text-destructive">Lunch rejected:</p>
                   <p className="text-destructive/80">{scheduleResult.lunchRejected.reason}</p>
+                </div>
+              )}
+              {(scheduleResult.alreadyScheduled?.length ?? 0) > 0 && (
+                <div className="space-y-1">
+                  <p className="font-medium text-info">Already on calendar:</p>
+                  {scheduleResult.alreadyScheduled.map((a, i) => (
+                    <p key={i} className="text-info/80">
+                      <span className="tabular-nums">{a.startTime.slice(11, 16)}–{a.endTime.slice(11, 16)}</span>{" "}
+                      {a.eventTitle}
+                    </p>
+                  ))}
                 </div>
               )}
               {scheduleResult.unscheduled.length > 0 && (

@@ -30,11 +30,12 @@ export default function LivingPowerfullyStep({ date, onNext }: LivingPowerfullyS
 
   const [index, setIndex] = useState(0);
   const [entries, setEntries] = useState<AreaEntry[]>(
-    LIVING_POWERFULLY_AREAS.map((area) => ({ area, score: 7, actionNote: "", targetCategory: "" })),
+    LIVING_POWERFULLY_AREAS.map((area) => ({ area, score: 0, actionNote: "", targetCategory: "" })),
   );
 
   const current = entries[index];
-  const isLowScore = current.score <= 5;
+  const isUnscored = current.score === 0;
+  const isLowScore = current.score > 0 && current.score <= 5;
   const isLast = index === LIVING_POWERFULLY_AREAS.length - 1;
 
   const mutation = useMutation({
@@ -63,7 +64,7 @@ export default function LivingPowerfullyStep({ date, onNext }: LivingPowerfullyS
     setEntries((prev) => prev.map((e, i) => (i === index ? { ...e, ...patch } : e)));
   }
 
-  const canAdvance = !isLowScore || (current.actionNote.trim().length > 0 && current.targetCategory !== "");
+  const canAdvance = !isUnscored && (!isLowScore || (current.actionNote.trim().length > 0 && current.targetCategory !== ""));
 
   function next() {
     if (isLast) mutation.mutate();
@@ -89,10 +90,12 @@ export default function LivingPowerfullyStep({ date, onNext }: LivingPowerfullyS
         <div className="space-y-2">
           <div className="flex items-baseline justify-between">
             <span className="text-xs text-muted-foreground uppercase tracking-wide">How am I doing?</span>
-            <span className="font-serif text-3xl tabular-nums" data-testid="text-score">{current.score}</span>
+            <span className="font-serif text-3xl tabular-nums text-muted-foreground" data-testid="text-score">
+              {isUnscored ? "—" : current.score}
+            </span>
           </div>
           <Slider
-            min={1}
+            min={0}
             max={10}
             step={1}
             value={[current.score]}
@@ -100,8 +103,11 @@ export default function LivingPowerfullyStep({ date, onNext }: LivingPowerfullyS
             data-testid="slider-score"
           />
           <div className="flex justify-between text-xs text-muted-foreground">
-            <span>1</span><span>10</span>
+            <span>not yet</span><span>10</span>
           </div>
+          {isUnscored && (
+            <p className="text-xs italic text-muted-foreground">Slide to score — defaults to "not yet" so you have to engage.</p>
+          )}
         </div>
 
         {isLowScore && (

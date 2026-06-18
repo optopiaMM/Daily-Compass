@@ -21,6 +21,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { extractFull } from "node-7z";
 import { path7za } from "7zip-bin";
+import { PDFDocument } from "pdf-lib";
 import { mkdtemp, writeFile, readFile, readdir, rm, chmod } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -92,7 +93,10 @@ const EXTRACT_SCHEMA = {
   properties: {
     period: {
       type: "string",
-      description: 'The pay period, e.g. "June 2026". Prefer the period stated on the reports.',
+      description:
+        'The pay-run period, e.g. "June 2026", derived from the Form P32 tax month / date ' +
+        'range — NOT from any payslip. UK tax months end on the 5th, so the pay run is the ' +
+        'calendar month immediately before the P32 "Date To" (e.g. Date To 05/07/2026 -> June 2026).',
     },
     payees: {
       type: "array",
@@ -191,19 +195,24 @@ const EXTRACT_SCHEMA = {
 
 const SYSTEM_PROMPT = `You extract structured payroll figures for a small UK limited company.
 
-You are given the body text of an email from the company's accountant, plus one
-or more PDFs extracted from a zip. The PDFs typically include:
-- a multi-page "Payroll Reports" PDF (which contains, among other pages, a
-  "BACS Pay Transfer Report" page and a "Payment Summary"),
-- a "Form P32" / "Employer Payment Record",
-- and possibly individual payslip pages.
+You are given the body text of an email from the company's accountant, plus the
+relevant PDF pages extracted from a zip. You are normally given exactly two:
+- the "BACS Pay Transfer Report" page (a table of Account Name + Net Pay), and
+- a "Form P32" / "Employer Payment Record".
+Individual payslip pages are deliberately withheld; if one ever appears, IGNORE it.
 
 WHERE TO READ EACH FIGURE
-- NET PAY: read ONLY from the "BACS Pay Transfer Report" page inside the Payroll
-  Reports PDF. It lists each person's Account Name and Net Pay (e.g.
-  "E Mills 1,047.50", "M Mills 965.10"). Use the "Payment Summary" total only as
-  a sanity check that the per-person net figures sum correctly.
-  Do NOT read net pay (or any figure) from individual payslip pages — ignore them.
+- NET PAY: read ONLY from the "Net Pay" column of the "BACS Pay Transfer Report"
+  table. Each row is "Sort Code  Account Name  Net Pay  ..." e.g.
+  "00-00-00  E Mills  1,047.50" and "00-00-00  M Mills  965.10", with a total
+  (e.g. 2,012.60) used only to sanity-check that the per-person figures sum
+  correctly. Do NOT read net pay (or any figure) from an individual payslip page
+  — ignore every payslip entirely. (You are normally given only the BACS report
+  page and the P32; if any payslip page is present, ignore it.)
+- PERIOD: derive the pay-run month from the Form P32 tax month / "Date To". Tax
+  months end on the 5th, so the pay run is the calendar month immediately before
+  the Date To (e.g. Date To 05/07/2026 -> "June 2026"). Never read the period
+  off an individual payslip.
 - HMRC: the amount, due date and payment reference the company acts on all come
   from the ACCOUNTANT'S EMAIL BODY. Put exactly those into hmrc.email (use null
   for anything the email does not state). Separately, read the Form P32's
@@ -438,6 +447,85 @@ async function extractPdfsFromZip(zipBytes: Buffer): Promise<{ name: string; b64
 }
 
 // ---------------------------------------------------------------------------
+// Document selection — send the model ONLY the pages that carry the figures
+// ---------------------------------------------------------------------------
+
+/** A labelled PDF (base64) ready to hand to the model as a document block. */
+interface DocBlock {
+  label: string;
+  b64: string;
+}
+
+/** Returns a new single-page PDF (base64) containing only page `index` of `b64`. */
+async function extractPage(b64: string, index: number): Promise<string> {
+  const src = await PDFDocument.load(Buffer.from(b64, "base64"));
+  const out = await PDFDocument.create();
+  const [page] = await out.copyPages(src, [index]);
+  out.addPage(page);
+  const bytes = await out.save();
+  return Buffer.from(bytes).toString("base64");
+}
+
+/**
+ * Picks the documents to send to the model from the extracted PDFs:
+ *   - the BACS Pay Transfer Report — page 1 ONLY of the Payroll Reports PDF
+ *     (so the individual payslip pages 2..n are never seen by the model),
+ *   - the Form P32 — sent whole (single page).
+ *
+ * Files are identified by filename ("...Payroll_Reports...", "...P32..."), with
+ * a page-count fallback (the multi-page PDF is the reports file, the 1-page PDF
+ * the P32). Any other / individual-payslip PDFs are dropped entirely.
+ *
+ * Falls back to sending every PDF (labelled, with strong instructions) only if
+ * neither file can be identified — better degraded than blind.
+ */
+async function selectDocuments(
+  pdfs: { name: string; b64: string }[],
+): Promise<{ blocks: DocBlock[]; notes: string[] }> {
+  const notes: string[] = [];
+
+  let reports = pdfs.find((p) => /payroll[\s_-]*reports?/i.test(p.name) && !/p32/i.test(p.name));
+  let p32 = pdfs.find((p) => /p32/i.test(p.name));
+
+  // Filename fallback: classify by page count when names don't match.
+  if (!reports || !p32) {
+    const withPages = await Promise.all(
+      pdfs.map(async (p) => {
+        try {
+          const doc = await PDFDocument.load(Buffer.from(p.b64, "base64"));
+          return { ...p, pages: doc.getPageCount() };
+        } catch {
+          return { ...p, pages: 0 };
+        }
+      }),
+    );
+    if (!reports) reports = withPages.slice().sort((a, b) => b.pages - a.pages)[0];
+    if (!p32) p32 = withPages.find((p) => p.pages === 1 && p.name !== reports?.name);
+  }
+
+  if (!reports) {
+    // Couldn't identify the reports file at all — send everything, degraded.
+    notes.push("Could not identify the Payroll Reports PDF; sent all PDFs to the model.");
+    return { blocks: pdfs.map((p) => ({ label: p.name, b64: p.b64 })), notes };
+  }
+
+  const blocks: DocBlock[] = [];
+  try {
+    const bacsPage = await extractPage(reports.b64, 0); // page 1 = BACS report
+    blocks.push({ label: `BACS Pay Transfer Report (page 1 of ${reports.name})`, b64: bacsPage });
+  } catch (err: any) {
+    notes.push(`Could not isolate the BACS page (${err?.message ?? err}); sent the whole reports PDF.`);
+    blocks.push({ label: `Payroll Reports — ${reports.name}`, b64: reports.b64 });
+  }
+  if (p32) {
+    blocks.push({ label: `Form P32 — ${p32.name}`, b64: p32.b64 });
+  } else {
+    notes.push("Could not identify the Form P32; HMRC cross-check / fallback unavailable.");
+  }
+  return { blocks, notes };
+}
+
+// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
@@ -484,28 +572,32 @@ export async function runPayslipAgent(): Promise<PayslipRunResult> {
     return await recordNeedsReview(email, "No payslip PDFs found in the email attachments.");
   }
 
-  // 4. Extract with Claude (PDF document blocks + email body), structured output.
-  // Label each PDF with its filename so the model can tell the Payroll Reports
-  // PDF (net pay, via its BACS Pay Transfer Report page) and the Form P32 apart
-  // from any individual payslip PDFs (which must be ignored). The model still
-  // identifies the right pages by content; the filenames are just a hint.
+  // 4. Pick the documents to send. We send ONLY page 1 of the Payroll Reports
+  // PDF (the BACS Pay Transfer Report) plus the Form P32 — the individual
+  // payslip pages are never handed to the model, so it cannot read net pay off
+  // them. selectDocuments handles identifying and slicing the files.
+  const { blocks: docBlocks, notes: docNotes } = await selectDocuments(pdfBuffers);
+
   const client = new Anthropic();
   const content: any[] = [
     { type: "text", text: `Accountant's email body:\n\n${email.bodyText || "(empty)"}` },
   ];
-  for (const p of pdfBuffers) {
-    content.push({ type: "text", text: `--- PDF: ${p.name} ---` });
+  for (const b of docBlocks) {
+    content.push({ type: "text", text: `--- ${b.label} ---` });
     content.push({
       type: "document",
-      source: { type: "base64", media_type: "application/pdf", data: p.b64 },
+      source: { type: "base64", media_type: "application/pdf", data: b.b64 },
     });
   }
   content.push({
     type: "text",
     text:
-      "Extract the figures as per the schema. Net pay comes ONLY from the BACS Pay " +
-      "Transfer Report page; HMRC amount/due-date/reference come from the email body " +
-      "(with the Form P32 as cross-check). Ignore any individual payslip PDFs.",
+      "Extract the figures as per the schema. NET PAY comes ONLY from the 'Net Pay' " +
+      "column of the BACS Pay Transfer Report table (match Account Names like " +
+      "'E Mills' / 'M Mills'); never read net pay from an individual payslip. " +
+      "Derive the PERIOD from the Form P32 tax-month / date range, not from any " +
+      "payslip. HMRC amount/due-date/reference come from the email body, with the " +
+      "P32 Total Amount Due and Accounts Office Reference as cross-check / fallback.",
   });
 
   const response = await client.messages.create({
@@ -532,7 +624,7 @@ export async function runPayslipAgent(): Promise<PayslipRunResult> {
 
   // 5. Resolve HMRC from the email body (P32 cross-check / fallback) and gather notes.
   const { figure: hmrc, notes: hmrcNotes } = resolveHmrc(data.hmrc);
-  const extraNotes: string[] = [...hmrcNotes];
+  const extraNotes: string[] = [...docNotes, ...hmrcNotes];
 
   // Sanity check: the per-person net figures should sum to the BACS Payment Summary.
   if (data.bacsPaymentSummaryTotalGbp != null && data.payees?.length) {

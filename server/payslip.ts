@@ -487,6 +487,14 @@ async function selectDocuments(
   let reports = pdfs.find((p) => /payroll[\s_-]*reports?/i.test(p.name) && !/p32/i.test(p.name));
   let p32 = pdfs.find((p) => /p32/i.test(p.name));
 
+  // [DIAG] Did the filename match work? (Temporary diagnostics.)
+  const reportsByName = !!reports;
+  const p32ByName = !!p32;
+  console.log(
+    `[payslip:diag] selectDocuments: filename match — Payroll Reports: ${reports ? `"${reports.name}"` : "NOT FOUND"}; ` +
+      `P32: ${p32 ? `"${p32.name}"` : "NOT FOUND"}`,
+  );
+
   // Filename fallback: classify by page count when names don't match.
   if (!reports || !p32) {
     const withPages = await Promise.all(
@@ -501,10 +509,29 @@ async function selectDocuments(
     );
     if (!reports) reports = withPages.slice().sort((a, b) => b.pages - a.pages)[0];
     if (!p32) p32 = withPages.find((p) => p.pages === 1 && p.name !== reports?.name);
+
+    // [DIAG] We fell back to page-count heuristics for at least one file. This
+    // is the prime suspect for the wrong figures — flag it loudly.
+    if (!reportsByName) {
+      console.warn(
+        `[payslip:diag] WARNING: Payroll Reports file was NOT identified by filename — ` +
+          `fell back to the highest-page-count PDF: ${reports ? `"${reports.name}"` : "still none"}.`,
+      );
+    }
+    if (!p32ByName) {
+      console.warn(
+        `[payslip:diag] WARNING: P32 file was NOT identified by filename — ` +
+          `fell back to a 1-page PDF: ${p32 ? `"${p32.name}"` : "still none"}.`,
+      );
+    }
   }
 
   if (!reports) {
     // Couldn't identify the reports file at all — send everything, degraded.
+    console.warn(
+      `[payslip:diag] WARNING: could not identify the Payroll Reports PDF at all — ` +
+        `sending ALL ${pdfs.length} PDF(s) to the model (this includes individual payslips!).`,
+    );
     notes.push("Could not identify the Payroll Reports PDF; sent all PDFs to the model.");
     return { blocks: pdfs.map((p) => ({ label: p.name, b64: p.b64 })), notes };
   }
@@ -512,16 +539,33 @@ async function selectDocuments(
   const blocks: DocBlock[] = [];
   try {
     const bacsPage = await extractPage(reports.b64, 0); // page 1 = BACS report
+    console.log(
+      `[payslip:diag] sliced page 1 (index 0) of "${reports.name}" as the BACS Pay Transfer Report.`,
+    );
     blocks.push({ label: `BACS Pay Transfer Report (page 1 of ${reports.name})`, b64: bacsPage });
   } catch (err: any) {
+    console.warn(
+      `[payslip:diag] WARNING: could not isolate page 1 of "${reports.name}" (${err?.message ?? err}) — ` +
+        `sending the WHOLE reports PDF (model may see individual payslips).`,
+    );
     notes.push(`Could not isolate the BACS page (${err?.message ?? err}); sent the whole reports PDF.`);
     blocks.push({ label: `Payroll Reports — ${reports.name}`, b64: reports.b64 });
   }
   if (p32) {
+    console.log(`[payslip:diag] sending Form P32 (whole): "${p32.name}".`);
     blocks.push({ label: `Form P32 — ${p32.name}`, b64: p32.b64 });
   } else {
+    console.warn(
+      `[payslip:diag] WARNING: could not identify the Form P32 — HMRC cross-check / fallback unavailable.`,
+    );
     notes.push("Could not identify the Form P32; HMRC cross-check / fallback unavailable.");
   }
+
+  // [DIAG] Final summary of exactly what is being handed to the model.
+  console.log(
+    `[payslip:diag] selectDocuments: sending ${blocks.length} document block(s) to the model: ` +
+      blocks.map((b) => `"${b.label}"`).join(", "),
+  );
   return { blocks, notes };
 }
 
@@ -570,6 +614,18 @@ export async function runPayslipAgent(): Promise<PayslipRunResult> {
   }
   if (pdfBuffers.length === 0) {
     return await recordNeedsReview(email, "No payslip PDFs found in the email attachments.");
+  }
+
+  // [DIAG] List every PDF extracted from the zip with its page count, so we can
+  // confirm which files arrived and how big they are. (Temporary diagnostics.)
+  for (const p of pdfBuffers) {
+    let pages = -1;
+    try {
+      pages = (await PDFDocument.load(Buffer.from(p.b64, "base64"))).getPageCount();
+    } catch (err: any) {
+      console.warn(`[payslip:diag] could not read page count for "${p.name}": ${err?.message ?? err}`);
+    }
+    console.log(`[payslip:diag] extracted PDF: "${p.name}" — ${pages} page(s)`);
   }
 
   // 4. Pick the documents to send. We send ONLY page 1 of the Payroll Reports

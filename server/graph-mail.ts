@@ -65,12 +65,38 @@ export async function getLatestMessageFromSender(
   }
   const body = (await res.json()) as { value?: any[] };
   const items = body.value ?? [];
-  if (items.length === 0) return null;
 
+  // [payslip:diag] Show exactly what the from-filter returned and in what order,
+  // BEFORE we sort. NOTE: the query uses $top=10 with no $orderby, so Graph may
+  // not return these newest-first — if the truly-newest email isn't in this list
+  // at all, that's the bug (it was paged out before our JS sort could see it).
+  console.log(
+    `[payslip:diag] getLatestMessageFromSender: from-filter "${senderEmail}" returned ${items.length} message(s) (capped at $top=10, no $orderby)`,
+  );
+  items.forEach((it, i) => {
+    const parsed = new Date(it.receivedDateTime).getTime();
+    console.log(
+      `[payslip:diag]   candidate[${i}] received=${it.receivedDateTime} (epoch=${Number.isNaN(parsed) ? "UNPARSEABLE" : parsed}) ` +
+        `subject="${it.subject ?? "(no subject)"}" id=${it.id}`,
+    );
+  });
+
+  if (items.length === 0) {
+    console.log("[payslip:diag] getLatestMessageFromSender: no messages matched the from-filter — returning null");
+    return null;
+  }
+
+  // Sort newest-first by receivedDateTime. (b - a) => descending; receivedDateTime
+  // is ISO 8601 UTC from Graph, which Date parses reliably.
   items.sort(
     (a, b) => new Date(b.receivedDateTime).getTime() - new Date(a.receivedDateTime).getTime(),
   );
   const m = items[0];
+
+  // [payslip:diag] The message chosen as "latest" after sorting.
+  console.log(
+    `[payslip:diag] getLatestMessageFromSender: selected received=${m.receivedDateTime} subject="${m.subject ?? "(no subject)"}" id=${m.id}`,
+  );
   const rawBody: string = m.body?.content ?? "";
   const bodyText = m.body?.contentType === "html" ? htmlToText(rawBody) : rawBody.trim();
 

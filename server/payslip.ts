@@ -17,7 +17,11 @@
 //   7. Record the run + actions; update the baseline to the latest figures.
 
 import Anthropic from "@anthropic-ai/sdk";
-import AdmZip from "adm-zip";
+import { extractFull } from "node-7z";
+import { path7za } from "7zip-bin";
+import { mkdtemp, writeFile, readFile, readdir, rm } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import { eq } from "drizzle-orm";
 import { db } from "./db";
 import { storage } from "./storage";
@@ -208,6 +212,60 @@ export interface PayslipRunResult {
 }
 
 // ---------------------------------------------------------------------------
+// Zip extraction (AES-aware)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extracts payslip PDFs from a (possibly AES-encrypted) zip.
+ *
+ * adm-zip cannot open AES-encrypted archives — its password support only covers
+ * legacy ZipCrypto — and the accountant's payroll software produces AES zips. So
+ * we shell out to the cross-platform 7-Zip binary bundled by `7zip-bin` via
+ * `node-7z`, which handles both schemes. The zip bytes are written to a temp
+ * file, extracted with the password from PAYSLIP_ZIP_PASSWORD into a temp dir,
+ * each PDF is read back as base64, then the temp files are removed.
+ */
+async function extractPdfsFromZip(zipBytes: Buffer): Promise<{ name: string; b64: string }[]> {
+  const password = process.env.PAYSLIP_ZIP_PASSWORD;
+  if (!password) {
+    throw new Error(
+      "PAYSLIP_ZIP_PASSWORD not set — cannot open the password-protected payslip zip.",
+    );
+  }
+
+  const workDir = await mkdtemp(join(tmpdir(), "payslip-"));
+  const zipPath = join(workDir, "payslip.zip");
+  const outDir = join(workDir, "out");
+  try {
+    await writeFile(zipPath, zipBytes);
+
+    await new Promise<void>((resolve, reject) => {
+      const stream = extractFull(zipPath, outDir, {
+        password,
+        $bin: path7za,
+        recursive: true,
+      });
+      stream.on("end", () => resolve());
+      stream.on("error", (err) =>
+        reject(new Error(`7-Zip extraction failed: ${err?.message ?? err}`)),
+      );
+    });
+
+    const out: { name: string; b64: string }[] = [];
+    const entries = await readdir(outDir, { recursive: true, withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isFile() && /\.pdf$/i.test(entry.name)) {
+        const bytes = await readFile(join(entry.parentPath, entry.name));
+        out.push({ name: entry.name, b64: bytes.toString("base64") });
+      }
+    }
+    return out;
+  } finally {
+    await rm(workDir, { recursive: true, force: true });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
@@ -244,12 +302,8 @@ export async function runPayslipAgent(): Promise<PayslipRunResult> {
   for (const att of attachments) {
     const isZip = /\.zip$/i.test(att.name) || /zip/i.test(att.contentType);
     if (isZip) {
-      const zip = new AdmZip(Buffer.from(att.contentBytes, "base64"));
-      for (const entry of zip.getEntries()) {
-        if (!entry.isDirectory && /\.pdf$/i.test(entry.entryName)) {
-          pdfBuffers.push({ name: entry.entryName, b64: entry.getData().toString("base64") });
-        }
-      }
+      const pdfs = await extractPdfsFromZip(Buffer.from(att.contentBytes, "base64"));
+      pdfBuffers.push(...pdfs);
     } else if (/\.pdf$/i.test(att.name)) {
       pdfBuffers.push({ name: att.name, b64: att.contentBytes });
     }

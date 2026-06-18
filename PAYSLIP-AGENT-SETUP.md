@@ -14,9 +14,14 @@ Below are the small edits to existing files.
 
 ## 1. Dependency (zip handling)
 
+The accountant's payslip zip is AES-encrypted with a fixed password. `adm-zip`
+only supports legacy ZipCrypto, so we use the bundled cross-platform 7-Zip binary
+(`7zip-bin`) driven by `node-7z` instead — it handles AES and runs in the Railway
+Linux container.
+
 ```bash
-npm i adm-zip
-npm i -D @types/adm-zip
+npm i node-7z 7zip-bin
+npm i -D @types/node-7z
 ```
 
 ## 2. Schema — add to `shared/schema.ts`
@@ -109,10 +114,14 @@ await seedStandingOrdersIfEmpty();
 
 ```
 ACCOUNTANT_EMAIL=accounts@your-accountant.co.uk
+PAYSLIP_ZIP_PASSWORD=the-fixed-zip-password
 ```
 
-(You can also leave it in `payees.yaml` under `config:`, but the env var is
-simplest on Railway. `ANTHROPIC_API_KEY` is already used by the existing agent.)
+(`ACCOUNTANT_EMAIL` can also live in `payees.yaml` under `config:`, but the env
+var is simplest on Railway. `PAYSLIP_ZIP_PASSWORD` is the fixed password the
+accountant's payroll software uses to encrypt the payslip zip — keep it in the
+environment only, never in the repo. `ANTHROPIC_API_KEY` is already used by the
+existing agent.)
 
 ## 7. Monthly trigger (Railway cron)
 

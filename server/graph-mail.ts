@@ -88,20 +88,40 @@ export async function getMessageAttachments(
   accessToken: string,
   messageId: string,
 ): Promise<MailAttachment[]> {
-  const url = `${GRAPH}/me/messages/${encodeURIComponent(messageId)}/attachments?$select=name,contentType,contentBytes`;
-  const res = await fetch(url, {
+  // List attachments without selecting contentBytes — it isn't a property on the
+  // base attachment type, so Graph rejects the $select with a 400.
+  const listUrl = `${GRAPH}/me/messages/${encodeURIComponent(messageId)}/attachments?$select=id,name,contentType`;
+  const listRes = await fetch(listUrl, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Graph attachments query failed: ${res.status} ${text}`);
+  if (!listRes.ok) {
+    const text = await listRes.text();
+    throw new Error(`Graph attachments query failed: ${listRes.status} ${text}`);
   }
-  const body = (await res.json()) as { value?: any[] };
-  return (body.value ?? [])
-    .filter((a) => a["@odata.type"] === "#microsoft.graph.fileAttachment" && a.contentBytes)
-    .map((a) => ({
-      name: a.name ?? "attachment",
-      contentType: a.contentType ?? "application/octet-stream",
-      contentBytes: a.contentBytes as string,
-    }));
+  const listBody = (await listRes.json()) as { value?: any[] };
+  const fileAttachments = (listBody.value ?? []).filter(
+    (a) => a["@odata.type"] === "#microsoft.graph.fileAttachment",
+  );
+
+  const attachments: MailAttachment[] = [];
+  for (const a of fileAttachments) {
+    // Fetch the individual attachment to get contentBytes, which is only
+    // returned on the full fileAttachment resource (not the collection list).
+    const itemUrl = `${GRAPH}/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(a.id)}`;
+    const itemRes = await fetch(itemUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!itemRes.ok) {
+      const text = await itemRes.text();
+      throw new Error(`Graph attachment fetch failed: ${itemRes.status} ${text}`);
+    }
+    const item = (await itemRes.json()) as any;
+    if (!item.contentBytes) continue;
+    attachments.push({
+      name: item.name ?? a.name ?? "attachment",
+      contentType: item.contentType ?? a.contentType ?? "application/octet-stream",
+      contentBytes: item.contentBytes as string,
+    });
+  }
+  return attachments;
 }

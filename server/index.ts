@@ -4,6 +4,7 @@ import { registerRoutes } from "./routes";
 import { createServer } from "http";
 import { pingDb } from "./db";
 import { seedFromYamlIfEmpty } from "./seed";
+import { seedStandingOrdersIfEmpty } from "./seed-payees";
 import { syncWeeklyGoalTemplatesFromCsv } from "./templates";
 
 process.on("uncaughtException", (err) => {
@@ -48,6 +49,7 @@ app.use((req, res, next) => {
 
   try {
     await seedFromYamlIfEmpty();
+    await seedStandingOrdersIfEmpty();
   } catch (err: any) {
     console.error("[boot] seed failed (non-fatal):", err?.message ?? err);
   }

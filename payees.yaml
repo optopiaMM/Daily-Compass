@@ -1,0 +1,24 @@
+# =====================================================================
+#  PAYSLIP AGENT — STANDING-ORDER BASELINE
+#
+#  HOW THIS WORKS
+#  - This file SEEDS the standing_orders table ONCE. After the app loads
+#    it, the database is the source of truth and the agent keeps each
+#    amount current automatically.
+#  - amount_gbp = what you currently pay this person by standing order.
+#  - Each month the agent compares net pay on the payslip against the
+#    stored amount. If they match -> "no action". If they differ ->
+#    "change £A -> £B", and the stored amount is updated to the new value
+#    so next month compares against the latest figure.
+# =====================================================================
+
+config:
+  # The accountant's sending address the agent looks for each month.
+  # Can also be set via the ACCOUNTANT_EMAIL env var (env wins if set).
+  accountant_email: "accounts@your-accountant.co.uk"
+
+payees:
+  - name: "Mark Mills"
+    amount_gbp: 0.00      # <-- set to your current standing-order amount
+  - name: "Lizzie Mills"
+    amount_gbp: 0.00      # <-- set to your current standing-order amount

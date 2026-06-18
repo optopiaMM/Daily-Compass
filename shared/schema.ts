@@ -174,6 +174,44 @@ export type InsertDailyItem = z.infer<typeof insertDailyItemSchema>;
 export type DailyQuote = typeof dailyQuotes.$inferSelect;
 export type InsertDailyQuote = z.infer<typeof insertDailyQuoteSchema>;
 
+export const standingOrders = pgTable("standing_orders", {
+  id: serial("id").primaryKey(),
+  payeeName: text("payee_name").notNull().unique(),
+  currentAmountPence: integer("current_amount_pence").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const payslipRuns = pgTable("payslip_runs", {
+  id: serial("id").primaryKey(),
+  period: text("period").notNull(),
+  sourceMessageId: text("source_message_id"),
+  status: text("status").notNull().default("ok"), // ok | needs_review | error
+  hmrcAmountPence: integer("hmrc_amount_pence"),
+  hmrcDueDate: date("hmrc_due_date"),
+  hmrcReference: text("hmrc_reference"),
+  hmrcAccount: text("hmrc_account"),
+  changesEventId: text("changes_event_id"),
+  hmrcEventId: text("hmrc_event_id"),
+  notes: text("notes"),
+  modelUsage: jsonb("model_usage").$type<{ input_tokens: number; output_tokens: number }>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const payslipActions = pgTable("payslip_actions", {
+  id: serial("id").primaryKey(),
+  runId: integer("run_id").notNull(),
+  payeeName: text("payee_name").notNull(),
+  requiredAmountPence: integer("required_amount_pence").notNull(),
+  previousAmountPence: integer("previous_amount_pence"),
+  actionType: text("action_type").notNull(), // no_action | change | verify
+  note: text("note"),
+});
+
+export type StandingOrder = typeof standingOrders.$inferSelect;
+export type PayslipRun = typeof payslipRuns.$inferSelect;
+export type PayslipAction = typeof payslipActions.$inferSelect;
+
 export const LIVING_POWERFULLY_AREAS = [
   "Personal Resilience",
   "Health & Wellbeing",

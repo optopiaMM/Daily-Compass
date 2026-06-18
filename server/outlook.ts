@@ -1,6 +1,6 @@
 import crypto from "crypto";
 
-const SCOPES_READ_WRITE = "Calendars.ReadWrite User.Read offline_access openid";
+const SCOPES_READ_WRITE = "Calendars.ReadWrite Mail.Read User.Read offline_access openid";
 const SCOPES_READ_ONLY = "Calendars.Read User.Read offline_access openid";
 
 function scopesFor(role: "read_write" | "read_only"): string {

@@ -13,6 +13,7 @@ import {
   validateAndParseState,
 } from "./outlook";
 import { scheduleDayWithClaude, clearDailyCompassEventsForDay } from "./agent";
+import { runPayslipAgent } from "./payslip";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
 
@@ -126,6 +127,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error: any) {
       console.error("[agent] schedule-day error:", error?.message ?? error);
       res.status(500).json({ message: error?.message ?? "Scheduling failed." });
+    }
+  });
+
+  app.post("/api/agent/payslip-run", async (_req, res) => {
+    try {
+      const result = await runPayslipAgent();
+      res.json(result);
+    } catch (error: any) {
+      console.error("[payslip] run error:", error?.message ?? error);
+      res.status(500).json({ error: error?.message ?? "Payslip run failed" });
     }
   });
 

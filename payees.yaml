@@ -15,10 +15,10 @@
 config:
   # The accountant's sending address the agent looks for each month.
   # Can also be set via the ACCOUNTANT_EMAIL env var (env wins if set).
-  accountant_email: "accounts@your-accountant.co.uk"
+  accountant_email: "rachel.madden-bandey@carpenterbox.com"
 
 payees:
   - name: "Mark Mills"
-    amount_gbp: 0.00      # <-- set to your current standing-order amount
+    amount_gbp: 1039.70
   - name: "Lizzie Mills"
-    amount_gbp: 0.00      # <-- set to your current standing-order amount
+    amount_gbp: 1047.50

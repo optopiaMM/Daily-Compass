@@ -13,6 +13,7 @@ import { standingOrders } from "@shared/schema";
 interface YamlPayee {
   name: string;
   amount_gbp?: number;
+  aliases?: string[];
 }
 interface YamlPayees {
   config?: { accountant_email?: string };
@@ -42,6 +43,7 @@ export async function seedStandingOrdersIfEmpty(): Promise<void> {
 
   const rows = (parsed?.payees ?? []).map((p) => ({
     payeeName: p.name,
+    aliases: Array.isArray(p.aliases) ? p.aliases : [],
     currentAmountPence: Math.round((p.amount_gbp ?? 0) * 100),
   }));
   if (rows.length === 0) {

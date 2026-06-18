@@ -177,6 +177,10 @@ export type InsertDailyQuote = z.infer<typeof insertDailyQuoteSchema>;
 export const standingOrders = pgTable("standing_orders", {
   id: serial("id").primaryKey(),
   payeeName: text("payee_name").notNull().unique(),
+  // Alternate names the payee appears under in payroll documents (e.g. the BACS
+  // report shows "E Mills" / "Mrs. E Mills" while the baseline name is the full
+  // "Lizzie Mills"). Used only for matching extracted figures to this row.
+  aliases: jsonb("aliases").$type<string[]>().notNull().default([]),
   currentAmountPence: integer("current_amount_pence").notNull().default(0),
   active: boolean("active").notNull().default(true),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

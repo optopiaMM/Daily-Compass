@@ -30,6 +30,9 @@ npm i -D @types/node-7z
 export const standingOrders = pgTable("standing_orders", {
   id: serial("id").primaryKey(),
   payeeName: text("payee_name").notNull().unique(),
+  // Alternate names the payee appears under in payroll docs (e.g. "E Mills"),
+  // used only to match extracted figures back to this baseline row.
+  aliases: jsonb("aliases").$type<string[]>().notNull().default([]),
   currentAmountPence: integer("current_amount_pence").notNull().default(0),
   active: boolean("active").notNull().default(true),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

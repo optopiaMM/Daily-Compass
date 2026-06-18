@@ -7,8 +7,10 @@
 //   1. Find the latest email from the accountant (Outlook via Graph).
 //   2. Skip if we've already processed that message (idempotent — safe to
 //      run on a daily cron; it no-ops until a new email arrives).
-//   3. Unzip the attachment, hand the payslip PDFs + email body to Claude,
-//      get back structured figures (net pay per payee + HMRC payment).
+//   3. Unzip the attachment, hand the extracted PDFs + email body to Claude,
+//      get back structured figures: net pay per payee from the BACS Pay Transfer
+//      Report (NOT individual payslips), and HMRC amount/due-date/reference from
+//      the email body (Form P32 used only as a cross-check / fallback).
 //   4. Validate the figures deterministically before doing anything real.
 //   5. Compare each net pay to the standing-order baseline.
 //   6. Create TWO calendar appointments via the existing Graph code:
@@ -51,16 +53,36 @@ interface PayeeFigure {
   name: string;
   netPayGbp: number;
 }
+/** Final, code-resolved HMRC payment (after email/P32 reconciliation). */
 interface HmrcFigure {
   amountGbp: number;
   dueDate: string; // YYYY-MM-DD
   reference: string;
   account: string;
 }
+/** What Claude pulls straight from the email body — only what is literally there. */
+interface HmrcEmail {
+  amountGbp: number | null;
+  dueDate: string | null; // YYYY-MM-DD or null
+  reference: string | null; // verbatim or null
+  account: string; // "" if not stated
+}
+/** What Claude pulls from the Form P32 — used for cross-check / fallback only. */
+interface HmrcP32 {
+  totalAmountDueGbp: number | null;
+  accountsOfficeReference: string | null; // verbatim from the P32
+  taxMonthEnd: string | null; // the tax-month-end date the P32 covers, YYYY-MM-DD
+}
+interface HmrcExtraction {
+  paymentDue: boolean;
+  email: HmrcEmail;
+  p32: HmrcP32;
+}
 interface Extraction {
   period: string;
-  payees: PayeeFigure[];
-  hmrc: HmrcFigure | null;
+  payees: PayeeFigure[]; // from the BACS Pay Transfer Report page
+  bacsPaymentSummaryTotalGbp: number | null; // "Payment Summary" total, sanity check
+  hmrc: HmrcExtraction;
   notes: string;
 }
 
@@ -70,68 +92,132 @@ const EXTRACT_SCHEMA = {
   properties: {
     period: {
       type: "string",
-      description: 'The pay period, e.g. "June 2026". Prefer the period stated on the payslips.',
+      description: 'The pay period, e.g. "June 2026". Prefer the period stated on the reports.',
     },
     payees: {
       type: "array",
+      description:
+        'Net pay per person, taken ONLY from the "BACS Pay Transfer Report" page inside the ' +
+        "Payroll Reports PDF (Account Name + Net Pay). Do NOT read individual payslip pages.",
       items: {
         type: "object",
         additionalProperties: false,
         properties: {
-          name: { type: "string", description: "Full name exactly as it appears on the payslip." },
-          netPayGbp: { type: "number", description: "Net (take-home) pay in GBP, e.g. 2350.00" },
+          name: {
+            type: "string",
+            description:
+              'The Account Name exactly as shown on the BACS report, e.g. "E Mills", "M Mills".',
+          },
+          netPayGbp: { type: "number", description: "Net (take-home) pay in GBP, e.g. 1047.50" },
         },
         required: ["name", "netPayGbp"],
       },
     },
+    bacsPaymentSummaryTotalGbp: {
+      anyOf: [{ type: "null" }, { type: "number" }],
+      description:
+        'The total from the "Payment Summary" on the BACS report (the sum of all net pay), ' +
+        "or null if not present. Used only to sanity-check that the per-person figures add up.",
+    },
     hmrc: {
-      anyOf: [
-        { type: "null" },
-        {
+      type: "object",
+      additionalProperties: false,
+      description:
+        "HMRC PAYE/NIC payment for the period. The figures the agent acts on come from the " +
+        "EMAIL BODY; the Form P32 fields are for cross-check / fallback only.",
+      properties: {
+        paymentDue: {
+          type: "boolean",
+          description: "True if a PAYE/NIC payment to HMRC is due for this period, else false.",
+        },
+        email: {
           type: "object",
           additionalProperties: false,
+          description: "Strictly what the accountant's email body states. Use null where absent.",
           properties: {
-            amountGbp: { type: "number", description: "Total PAYE/NIC due to HMRC in GBP." },
-            dueDate: { type: "string", description: "Payment due date as YYYY-MM-DD." },
+            amountGbp: {
+              anyOf: [{ type: "null" }, { type: "number" }],
+              description: "Amount due to HMRC per the EMAIL BODY, or null if the email omits it.",
+            },
+            dueDate: {
+              anyOf: [{ type: "null" }, { type: "string" }],
+              description: "Due date per the EMAIL BODY as YYYY-MM-DD, or null if the email omits it.",
+            },
             reference: {
-              type: "string",
+              anyOf: [{ type: "null" }, { type: "string" }],
               description:
-                "The HMRC payment reference, copied VERBATIM from the email body. Do not reconstruct it.",
+                "The HMRC payment reference copied VERBATIM from the EMAIL BODY, or null if the " +
+                "email omits it. Never reconstruct or guess it — the period suffix changes monthly.",
             },
             account: {
               type: "string",
               description:
-                "Destination account details (sort code / account no / name) as stated, or empty string if not given.",
+                "Destination account details (sort code / account no / name) per the email, or \"\".",
             },
           },
           required: ["amountGbp", "dueDate", "reference", "account"],
         },
-      ],
-      description: "HMRC payment for the period, or null if none is due this month.",
+        p32: {
+          type: "object",
+          additionalProperties: false,
+          description: 'From the Form P32 / Employer Payment Record. Cross-check / fallback only.',
+          properties: {
+            totalAmountDueGbp: {
+              anyOf: [{ type: "null" }, { type: "number" }],
+              description: 'The P32 "Total Amount Due" in GBP, or null if not found.',
+            },
+            accountsOfficeReference: {
+              anyOf: [{ type: "null" }, { type: "string" }],
+              description:
+                'The P32 "Accounts Office Reference" copied VERBATIM, or null if not found. This is ' +
+                "the base reference WITHOUT the monthly period suffix.",
+            },
+            taxMonthEnd: {
+              anyOf: [{ type: "null" }, { type: "string" }],
+              description:
+                "The tax-month-end date the P32 covers, as YYYY-MM-DD (UK tax months end on the 5th), " +
+                "or null if not found.",
+            },
+          },
+          required: ["totalAmountDueGbp", "accountsOfficeReference", "taxMonthEnd"],
+        },
+      },
+      required: ["paymentDue", "email", "p32"],
     },
     notes: { type: "string", description: "One short line on anything ambiguous. Keep it brief." },
   },
-  required: ["period", "payees", "hmrc", "notes"],
+  required: ["period", "payees", "bacsPaymentSummaryTotalGbp", "hmrc", "notes"],
 } as const;
 
 const SYSTEM_PROMPT = `You extract structured payroll figures for a small UK limited company.
 
-You are given the body text of an email from the company's accountant, plus
-one or more payslip PDFs for the month.
+You are given the body text of an email from the company's accountant, plus one
+or more PDFs extracted from a zip. The PDFs typically include:
+- a multi-page "Payroll Reports" PDF (which contains, among other pages, a
+  "BACS Pay Transfer Report" page and a "Payment Summary"),
+- a "Form P32" / "Employer Payment Record",
+- and possibly individual payslip pages.
 
-Extract:
-- The pay period.
-- Each employee's NET (take-home) pay, in GBP, from their payslip.
-- The amount due to HMRC (PAYE/NIC), its due date, its payment reference, and
-  the destination account — these come from the EMAIL BODY, not the payslips.
+WHERE TO READ EACH FIGURE
+- NET PAY: read ONLY from the "BACS Pay Transfer Report" page inside the Payroll
+  Reports PDF. It lists each person's Account Name and Net Pay (e.g.
+  "E Mills 1,047.50", "M Mills 965.10"). Use the "Payment Summary" total only as
+  a sanity check that the per-person net figures sum correctly.
+  Do NOT read net pay (or any figure) from individual payslip pages — ignore them.
+- HMRC: the amount, due date and payment reference the company acts on all come
+  from the ACCOUNTANT'S EMAIL BODY. Put exactly those into hmrc.email (use null
+  for anything the email does not state). Separately, read the Form P32's
+  "Total Amount Due", "Accounts Office Reference" and tax-month-end into hmrc.p32
+  for cross-checking only.
 
 CRITICAL RULES
-- The HMRC payment reference must be copied VERBATIM from the email body. It
-  carries a period suffix that changes every month; never reconstruct or guess
-  it. If you cannot find it, return an empty string for reference.
+- The HMRC payment reference must be copied VERBATIM from the email body — it
+  carries a period suffix that changes every month. Never reconstruct or guess
+  it. If the email omits it, set hmrc.email.reference to null (do NOT fall back
+  to the P32 reference yourself; the calling code handles fallback).
 - Net pay is the take-home figure, NOT gross and NOT total cost to employer.
-- Amounts are plain numbers in GBP (e.g. 2350.00), no currency symbols.
-- If no HMRC payment is due this month, set "hmrc": null.
+- Amounts are plain numbers in GBP (e.g. 1047.50), no currency symbols or commas.
+- If no HMRC payment is due this period, set hmrc.paymentDue to false.
 - Return a single JSON object matching the provided schema. No commentary.`;
 
 // ---------------------------------------------------------------------------
@@ -184,8 +270,83 @@ function fmt(pence: number): string {
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 }
+/**
+ * Normalises a name for matching: strips any leading title (Mr/Mrs/Ms/Miss/Dr),
+ * trailing punctuation, lowercases, and collapses whitespace. So "Mrs. E Mills"
+ * and "E Mills" both normalise to "e mills".
+ */
 function norm(name: string): string {
-  return name.trim().toLowerCase();
+  return name
+    .replace(/^\s*(mr|mrs|ms|miss|dr)\.?\s+/i, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+/** 22nd of the month following the tax-month-end date (fallback HMRC due date). */
+function due22ndAfterTaxMonthEnd(taxMonthEnd: string): string {
+  const d = parseYmd(taxMonthEnd);
+  const next = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 22, 12, 0, 0));
+  return ymd(next);
+}
+
+/**
+ * Reconciles the HMRC figures. The amount, due date and reference are taken from
+ * the accountant's EMAIL BODY when present. The P32 is a cross-check; it only
+ * supplies a value when the email omits one:
+ *   - amount    -> P32 "Total Amount Due"
+ *   - due date  -> 22nd of the month following the P32 tax-month-end
+ *   - reference -> P32 "Accounts Office Reference", flagged as needing the period
+ *                  suffix confirmed (the reference is NEVER reconstructed silently).
+ * Returns the resolved figure plus any notes (mismatches, fallbacks used).
+ */
+function resolveHmrc(h: HmrcExtraction): { figure: HmrcFigure | null; notes: string[] } {
+  const notes: string[] = [];
+  if (!h.paymentDue) return { figure: null, notes };
+
+  const email = h.email;
+  const p32 = h.p32;
+
+  // Amount: email first, P32 as fallback / cross-check.
+  let amountGbp: number | null = email.amountGbp;
+  if (amountGbp == null) {
+    amountGbp = p32.totalAmountDueGbp;
+    if (amountGbp != null) notes.push(`HMRC amount taken from P32 Total Amount Due (£${amountGbp.toFixed(2)}) — email did not state it.`);
+  } else if (p32.totalAmountDueGbp != null && Math.abs(p32.totalAmountDueGbp - amountGbp) > 0.005) {
+    notes.push(`HMRC amount mismatch: email £${amountGbp.toFixed(2)} vs P32 Total Amount Due £${p32.totalAmountDueGbp.toFixed(2)}.`);
+  }
+
+  // Due date: email first, else 22nd of month after the P32 tax-month-end.
+  let dueDate: string | null = email.dueDate;
+  if (!dueDate) {
+    if (p32.taxMonthEnd && /^\d{4}-\d{2}-\d{2}$/.test(p32.taxMonthEnd)) {
+      dueDate = due22ndAfterTaxMonthEnd(p32.taxMonthEnd);
+      notes.push(`HMRC due date derived as ${dueDate} (22nd of month after P32 tax-month-end) — email did not state it.`);
+    } else {
+      notes.push("HMRC due date missing from email and no P32 tax-month-end to derive it from.");
+    }
+  }
+
+  // Reference: ALWAYS verbatim from the email when present; never reconstructed.
+  let reference: string | null = email.reference?.trim() || null;
+  if (!reference) {
+    if (p32.accountsOfficeReference?.trim()) {
+      reference = p32.accountsOfficeReference.trim();
+      notes.push(`HMRC reference fell back to the P32 Accounts Office Reference (${reference}) — email did not state it. The monthly period suffix MUST be confirmed before paying.`);
+    } else {
+      notes.push("HMRC reference missing from email and no P32 Accounts Office Reference to fall back to.");
+    }
+  }
+
+  return {
+    figure: {
+      amountGbp: amountGbp ?? 0,
+      dueDate: dueDate ?? "",
+      reference: reference ?? "",
+      account: email.account ?? "",
+    },
+    notes,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -323,16 +484,29 @@ export async function runPayslipAgent(): Promise<PayslipRunResult> {
     return await recordNeedsReview(email, "No payslip PDFs found in the email attachments.");
   }
 
-  // 4. Extract with Claude (PDF document blocks + email body), structured output
+  // 4. Extract with Claude (PDF document blocks + email body), structured output.
+  // Label each PDF with its filename so the model can tell the Payroll Reports
+  // PDF (net pay, via its BACS Pay Transfer Report page) and the Form P32 apart
+  // from any individual payslip PDFs (which must be ignored). The model still
+  // identifies the right pages by content; the filenames are just a hint.
   const client = new Anthropic();
   const content: any[] = [
     { type: "text", text: `Accountant's email body:\n\n${email.bodyText || "(empty)"}` },
-    ...pdfBuffers.map((p) => ({
+  ];
+  for (const p of pdfBuffers) {
+    content.push({ type: "text", text: `--- PDF: ${p.name} ---` });
+    content.push({
       type: "document",
       source: { type: "base64", media_type: "application/pdf", data: p.b64 },
-    })),
-    { type: "text", text: "Extract the figures as per the schema." },
-  ];
+    });
+  }
+  content.push({
+    type: "text",
+    text:
+      "Extract the figures as per the schema. Net pay comes ONLY from the BACS Pay " +
+      "Transfer Report page; HMRC amount/due-date/reference come from the email body " +
+      "(with the Form P32 as cross-check). Ignore any individual payslip PDFs.",
+  });
 
   const response = await client.messages.create({
     model: MODEL,
@@ -356,43 +530,74 @@ export async function runPayslipAgent(): Promise<PayslipRunResult> {
     return await recordNeedsReview(email, `Could not parse extraction JSON: ${err?.message ?? err}`);
   }
 
-  // 5. Validate before doing anything real
+  // 5. Resolve HMRC from the email body (P32 cross-check / fallback) and gather notes.
+  const { figure: hmrc, notes: hmrcNotes } = resolveHmrc(data.hmrc);
+  const extraNotes: string[] = [...hmrcNotes];
+
+  // Sanity check: the per-person net figures should sum to the BACS Payment Summary.
+  if (data.bacsPaymentSummaryTotalGbp != null && data.payees?.length) {
+    const sum = data.payees.reduce((acc, p) => acc + (p.netPayGbp || 0), 0);
+    if (Math.abs(sum - data.bacsPaymentSummaryTotalGbp) > 0.01) {
+      extraNotes.push(
+        `BACS sanity check failed: per-person net pay sums to £${sum.toFixed(2)} but the ` +
+          `Payment Summary total is £${data.bacsPaymentSummaryTotalGbp.toFixed(2)}.`,
+      );
+    }
+  }
+
+  // 6. Validate before doing anything real
   const reasons: string[] = [];
   if (!data.period) reasons.push("Missing pay period.");
-  if (!data.payees?.length) reasons.push("No payees extracted.");
+  if (!data.payees?.length) reasons.push("No payees extracted from the BACS report.");
   for (const p of data.payees ?? []) {
     if (!(p.netPayGbp > 0)) reasons.push(`Net pay for ${p.name || "(unnamed)"} is not a positive number.`);
   }
-  if (data.hmrc) {
-    if (!(data.hmrc.amountGbp >= 0)) reasons.push("HMRC amount is invalid.");
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(data.hmrc.dueDate || "")) reasons.push("HMRC due date is not a valid date.");
-    if (!data.hmrc.reference?.trim()) reasons.push("HMRC payment reference is missing.");
+  // A failed BACS sanity check means the net figures are wrong — don't act on them.
+  if (data.bacsPaymentSummaryTotalGbp != null && data.payees?.length) {
+    const sum = data.payees.reduce((acc, p) => acc + (p.netPayGbp || 0), 0);
+    if (Math.abs(sum - data.bacsPaymentSummaryTotalGbp) > 0.01) {
+      reasons.push("Net pay figures do not sum to the BACS Payment Summary total.");
+    }
+  }
+  if (hmrc) {
+    if (!(hmrc.amountGbp > 0)) reasons.push("HMRC amount is missing or not positive.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(hmrc.dueDate)) reasons.push("HMRC due date is missing or not a valid date.");
+    if (!hmrc.reference.trim()) reasons.push("HMRC payment reference is missing.");
   }
   if (reasons.length > 0) {
-    return await recordNeedsReview(email, reasons.join(" "));
+    return await recordNeedsReview(email, [...reasons, ...extraNotes].join(" "));
   }
 
-  // 6. Compare each net pay to the standing-order baseline
+  // 7. Compare each net pay to the standing-order baseline. The BACS report names
+  // people as "E Mills" / "M Mills"; match those to the full baseline names via
+  // each row's payeeName plus its aliases (all title-stripped, case-insensitive).
   const baseline = await db.select().from(standingOrders);
-  const baselineByName = new Map(baseline.map((b) => [norm(b.payeeName), b]));
+  const baselineByName = new Map<string, (typeof baseline)[number]>();
+  for (const b of baseline) {
+    baselineByName.set(norm(b.payeeName), b);
+    for (const alias of b.aliases ?? []) baselineByName.set(norm(alias), b);
+  }
 
   const actions: PayeeAction[] = [];
   for (const p of data.payees) {
     const requiredPence = poundsToPence(p.netPayGbp);
     const known = baselineByName.get(norm(p.name));
+    // When matched, label the action with the full baseline name, not the
+    // abbreviated BACS name, so the calendar entry reads clearly.
+    const displayName = known ? known.payeeName : p.name;
     if (!known) {
       actions.push({
-        payeeName: p.name,
+        payeeName: displayName,
         requiredPence,
         previousPence: null,
         actionType: "verify",
-        note: "Not in baseline — set up / verify standing order.",
+        note: `Not in baseline (BACS name "${p.name}") — set up / verify standing order.`,
       });
     } else if (known.currentAmountPence === requiredPence) {
-      actions.push({ payeeName: p.name, requiredPence, previousPence: requiredPence, actionType: "no_action", note: "" });
+      actions.push({ payeeName: displayName, requiredPence, previousPence: requiredPence, actionType: "no_action", note: "" });
     } else {
       actions.push({
-        payeeName: p.name,
+        payeeName: displayName,
         requiredPence,
         previousPence: known.currentAmountPence,
         actionType: "change",
@@ -401,7 +606,7 @@ export async function runPayslipAgent(): Promise<PayslipRunResult> {
     }
   }
 
-  // 7. Build + create the two appointments
+  // 8. Build + create the two appointments
   const changesDate = nextWeekday(email.receivedDateTime.slice(0, 10));
   const changesBody = buildChangesBody(data.period, actions);
   const changesEvent = await createCalendarEvent(token, {
@@ -414,11 +619,11 @@ export async function runPayslipAgent(): Promise<PayslipRunResult> {
   });
 
   let hmrcEvent: { id: string } | null = null;
-  if (data.hmrc) {
-    const hmrcDate = workingDaysBefore(data.hmrc.dueDate, HMRC_LEAD_WORKING_DAYS);
+  if (hmrc) {
+    const hmrcDate = workingDaysBefore(hmrc.dueDate, HMRC_LEAD_WORKING_DAYS);
     hmrcEvent = await createCalendarEvent(token, {
       subject: `Pay HMRC — ${data.period}`,
-      bodyHtml: buildHmrcBody(data.period, data.hmrc),
+      bodyHtml: buildHmrcBody(data.period, hmrc, hmrcNotes),
       startISO: makeIso(hmrcDate, APPT_TIME),
       endISO: makeIso(hmrcDate, addMinutes(APPT_TIME, APPT_DURATION_MIN)),
       timeZone: TIME_ZONE,
@@ -426,20 +631,21 @@ export async function runPayslipAgent(): Promise<PayslipRunResult> {
     });
   }
 
-  // 8. Persist the run + actions; update the baseline to the latest figures
+  // 9. Persist the run + actions; update the baseline to the latest figures
+  const combinedNotes = [data.notes?.trim(), ...extraNotes].filter(Boolean).join(" ");
   const [run] = await db
     .insert(payslipRuns)
     .values({
       period: data.period,
       sourceMessageId: email.id,
       status: "ok",
-      hmrcAmountPence: data.hmrc ? poundsToPence(data.hmrc.amountGbp) : null,
-      hmrcDueDate: data.hmrc ? data.hmrc.dueDate : null,
-      hmrcReference: data.hmrc ? data.hmrc.reference : null,
-      hmrcAccount: data.hmrc ? data.hmrc.account : null,
+      hmrcAmountPence: hmrc ? poundsToPence(hmrc.amountGbp) : null,
+      hmrcDueDate: hmrc ? hmrc.dueDate : null,
+      hmrcReference: hmrc ? hmrc.reference : null,
+      hmrcAccount: hmrc ? hmrc.account : null,
       changesEventId: changesEvent.id,
       hmrcEventId: hmrcEvent?.id ?? null,
-      notes: data.notes ?? "",
+      notes: combinedNotes,
       modelUsage: { input_tokens: response.usage.input_tokens, output_tokens: response.usage.output_tokens },
     })
     .returning({ id: payslipRuns.id });
@@ -490,7 +696,10 @@ function buildChangesBody(period: string, actions: PayeeAction[]): string {
   ].join("");
 }
 
-function buildHmrcBody(period: string, hmrc: HmrcFigure): string {
+function buildHmrcBody(period: string, hmrc: HmrcFigure, notes: string[]): string {
+  const noteHtml = notes.length
+    ? `<p style="color:#b00"><strong>⚠ Check before paying:</strong><br>${notes.map(escapeHtml).join("<br>")}</p>`
+    : "";
   return [
     `<p><strong>Pay HMRC — ${escapeHtml(period)}</strong></p>`,
     `<p>• Amount: <strong>${fmt(poundsToPence(hmrc.amountGbp))}</strong><br>`,
@@ -498,6 +707,7 @@ function buildHmrcBody(period: string, hmrc: HmrcFigure): string {
     `• Reference: <strong>${escapeHtml(hmrc.reference)}</strong><br>`,
     hmrc.account ? `• Account: ${escapeHtml(hmrc.account)}` : "",
     `</p>`,
+    noteHtml,
     `<p style="color:#888;font-size:11px">Reference copied verbatim from the accountant's email · Created by the payslip agent</p>`,
   ].join("");
 }

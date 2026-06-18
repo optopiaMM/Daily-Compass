@@ -17,8 +17,15 @@ config:
   # Can also be set via the ACCOUNTANT_EMAIL env var (env wins if set).
   accountant_email: "rachel.madden-bandey@carpenterbox.com"
 
+# aliases: optional alternate names the payee appears under in the payroll
+# documents. The BACS Pay Transfer Report lists people as "E Mills" / "M Mills"
+# (sometimes "Mrs. E Mills" / "Mr. M Mills"), but the baseline uses full names.
+# Matching strips any title and is case-insensitive, so "Mrs. E Mills" still
+# resolves via the "E Mills" alias.
 payees:
   - name: "Mark Mills"
-    amount_gbp: 1039.70
+    amount_gbp: 965.10
+    aliases: ["M Mills", "Mr. M Mills"]
   - name: "Lizzie Mills"
     amount_gbp: 1047.50
+    aliases: ["E Mills", "Mrs. E Mills"]

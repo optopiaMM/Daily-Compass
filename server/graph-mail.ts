@@ -71,101 +71,136 @@ function logCandidates(label: string, items: any[]): void {
   });
 }
 
+/** Sort raw Graph messages newest-first by receivedDateTime (ISO 8601 UTC). */
+function sortNewestFirst(items: any[]): any[] {
+  return [...items].sort(
+    (a, b) => new Date(b.receivedDateTime).getTime() - new Date(a.receivedDateTime).getTime(),
+  );
+}
+
 /**
- * Returns the genuinely-newest message from a given sender.
+ * Run a Microsoft Graph $search over the mailbox and return the raw messages.
+ * $search uses KQL and requires the `ConsistencyLevel: eventual` header. It
+ * cannot be combined with $orderby, so callers sort the results in JS.
+ * Returns null on a non-OK response (so callers can try the next strategy).
+ */
+async function searchMessages(
+  accessToken: string,
+  searchQuery: string,
+): Promise<any[] | null> {
+  // $search value must be a quoted KQL phrase; encode the whole thing.
+  const search = encodeURIComponent(`"${searchQuery}"`);
+  const url = `${GRAPH}/me/messages?$search=${search}&$top=25&$select=${MESSAGE_SELECT}`;
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ConsistencyLevel: "eventual",
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    console.log(
+      `[payslip:diag] getLatestMessageFromSender: $search ${searchQuery} failed (${res.status}). error=${text}`,
+    );
+    return null;
+  }
+  const body = (await res.json()) as { value?: any[] };
+  return body.value ?? [];
+}
+
+/**
+ * Returns the genuinely-newest message from a given sender, reliably even in a
+ * very high-volume inbox where the sender's mail is far older than the newest
+ * page. A plain $filter on `from` triggers Graph's InefficientFilter error, so
+ * we use $search (KQL) instead:
  *
- * Primary path: ask Graph to do the ordering server-side with
- * $orderby=receivedDateTime desc + $top=1, combined with the `from` $filter.
- * Graph only permits $filter and $orderby together on messages when the request
- * is in "advanced query" mode, which requires the `ConsistencyLevel: eventual`
- * header and `$count=true` in the query string.
- *
- * Fallback path — triggered when the primary query ERRORS *or* returns ZERO
- * messages (some mailboxes return an empty set for this advanced-query
- * combination even when matching mail exists). The fallback fetches the newest
- * 50 messages ordered server-side WITHOUT a $filter, then filters to the sender
- * in JS (case-insensitive, trimmed) and takes the first (newest) match.
+ *   1. PRIMARY  — $search="from:<full address>", sort newest-first in JS.
+ *   2. DOMAIN   — if (1) is empty, $search="from:<domain>" (address may differ
+ *                 slightly); log the from-addresses found.
+ *   3. SCAN     — last resort: newest 50 messages with no filter, matched to the
+ *                 sender address in JS (case-insensitive, trimmed).
  */
 export async function getLatestMessageFromSender(
   accessToken: string,
   senderEmail: string,
 ): Promise<MailMessage | null> {
   const target = senderEmail.trim().toLowerCase();
+  const domain = target.includes("@") ? target.slice(target.indexOf("@") + 1) : target;
 
-  // --- Primary: server-side filter + order (advanced query mode) ---
-  const addr = senderEmail.replace(/'/g, "''");
-  const filter = encodeURIComponent(`from/emailAddress/address eq '${addr}'`);
-  const primaryUrl =
-    `${GRAPH}/me/messages?$filter=${filter}` +
-    `&$orderby=receivedDateTime%20desc&$top=1&$count=true&$select=${MESSAGE_SELECT}`;
-  const primaryRes = await fetch(primaryUrl, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      ConsistencyLevel: "eventual",
-    },
-  });
-
-  if (primaryRes.ok) {
-    const body = (await primaryRes.json()) as { value?: any[] };
-    const items = body.value ?? [];
-    logCandidates(`PRIMARY server-ordered from-filter "${senderEmail}" (orderby desc, $top=1)`, items);
-    if (items.length > 0) {
-      const m = items[0];
-      console.log(
-        `[payslip:diag] getLatestMessageFromSender: PRIMARY path selected received=${m.receivedDateTime} ` +
-          `subject="${m.subject ?? "(no subject)"}" id=${m.id}`,
-      );
-      return toMailMessage(m);
-    }
-    // Empty primary result — fall through to the fallback (known Graph quirk).
+  // --- 1. PRIMARY: $search by full from-address ---
+  const primary = await searchMessages(accessToken, `from:${target}`);
+  if (primary && primary.length > 0) {
+    const sorted = sortNewestFirst(primary);
+    logCandidates(`PRIMARY $search "from:${target}" (sorted newest-first)`, sorted);
+    const m = sorted[0];
     console.log(
-      "[payslip:diag] getLatestMessageFromSender: PRIMARY returned 0 messages — running fallback (orderby-only + JS filter)",
+      `[payslip:diag] getLatestMessageFromSender: PRIMARY ($search from-address) selected received=${m.receivedDateTime} ` +
+        `subject="${m.subject ?? "(no subject)"}" id=${m.id}`,
     );
-  } else {
-    const primaryErr = await primaryRes.text();
-    console.log(
-      `[payslip:diag] getLatestMessageFromSender: PRIMARY query failed (${primaryRes.status}) — running fallback. error=${primaryErr}`,
-    );
+    return toMailMessage(m);
   }
+  console.log(
+    `[payslip:diag] getLatestMessageFromSender: PRIMARY $search "from:${target}" returned 0 — trying domain search`,
+  );
 
-  // --- Fallback: server-side order, no $filter, filter to sender in JS ---
-  const fallbackUrl =
+  // --- 2. DOMAIN: $search by domain only (address may differ slightly) ---
+  const byDomain = await searchMessages(accessToken, `from:${domain}`);
+  if (byDomain && byDomain.length > 0) {
+    const sorted = sortNewestFirst(byDomain);
+    const seen = Array.from(
+      new Set(sorted.map((it) => (it.from?.emailAddress?.address ?? "(none)").trim().toLowerCase())),
+    );
+    logCandidates(`DOMAIN $search "from:${domain}" (sorted newest-first)`, sorted);
+    console.log(
+      `[payslip:diag] getLatestMessageFromSender: DOMAIN search from-addresses (${seen.length} distinct): ${seen.join(", ")}`,
+    );
+    const m = sorted[0];
+    console.log(
+      `[payslip:diag] getLatestMessageFromSender: DOMAIN ($search domain) selected received=${m.receivedDateTime} ` +
+        `subject="${m.subject ?? "(no subject)"}" id=${m.id} from=${m.from?.emailAddress?.address ?? "(none)"}`,
+    );
+    return toMailMessage(m);
+  }
+  console.log(
+    `[payslip:diag] getLatestMessageFromSender: DOMAIN $search "from:${domain}" returned 0 — trying last-resort scan`,
+  );
+
+  // --- 3. SCAN: newest 50 messages, no filter, matched in JS ---
+  const scanUrl =
     `${GRAPH}/me/messages?$orderby=receivedDateTime%20desc&$top=50&$select=${MESSAGE_SELECT}`;
-  const fallbackRes = await fetch(fallbackUrl, {
+  const scanRes = await fetch(scanUrl, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!fallbackRes.ok) {
-    const text = await fallbackRes.text();
-    throw new Error(`Graph messages query failed: ${fallbackRes.status} ${text}`);
+  if (!scanRes.ok) {
+    const text = await scanRes.text();
+    throw new Error(`Graph messages query failed: ${scanRes.status} ${text}`);
   }
-  const fallbackBody = (await fallbackRes.json()) as { value?: any[] };
-  const all = fallbackBody.value ?? [];
+  const scanBody = (await scanRes.json()) as { value?: any[] };
+  const all = scanBody.value ?? [];
   console.log(
-    `[payslip:diag] getLatestMessageFromSender: FALLBACK fetched ${all.length} message(s) (newest 50, no filter); ` +
+    `[payslip:diag] getLatestMessageFromSender: SCAN fetched ${all.length} message(s) (newest 50, no filter); ` +
       `matching against "${target}"`,
   );
   const items = all.filter(
     (it) => (it.from?.emailAddress?.address ?? "").trim().toLowerCase() === target,
   );
 
-  logCandidates(`FALLBACK JS-filtered to "${senderEmail}"`, items);
+  logCandidates(`SCAN JS-filtered to "${target}"`, items);
   if (items.length === 0) {
-    // Surface the distinct from-addresses we DID see, so a mismatch (different
-    // address/casing/alias than expected) is diagnosable from the logs.
     const seen = Array.from(
       new Set(all.map((it) => (it.from?.emailAddress?.address ?? "(none)").trim().toLowerCase())),
     );
     console.log(
-      `[payslip:diag] getLatestMessageFromSender: FALLBACK found no match for "${target}". ` +
+      `[payslip:diag] getLatestMessageFromSender: SCAN found no match for "${target}". ` +
         `From-addresses seen in newest 50 (${seen.length} distinct): ${seen.join(", ")}`,
     );
     return null;
   }
 
-  // The page is already newest-first; first match is the newest from the sender.
+  // Page is already newest-first; first match is the newest from the sender.
   const m = items[0];
   console.log(
-    `[payslip:diag] getLatestMessageFromSender: FALLBACK path selected received=${m.receivedDateTime} ` +
+    `[payslip:diag] getLatestMessageFromSender: SCAN path selected received=${m.receivedDateTime} ` +
       `subject="${m.subject ?? "(no subject)"}" id=${m.id}`,
   );
   return toMailMessage(m);

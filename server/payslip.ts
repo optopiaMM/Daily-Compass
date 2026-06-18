@@ -19,7 +19,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { extractFull } from "node-7z";
 import { path7za } from "7zip-bin";
-import { mkdtemp, writeFile, readFile, readdir, rm } from "fs/promises";
+import { mkdtemp, writeFile, readFile, readdir, rm, chmod } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { eq } from "drizzle-orm";
@@ -238,6 +238,17 @@ async function extractPdfsFromZip(zipBytes: Buffer): Promise<{ name: string; b64
   const outDir = join(workDir, "out");
   try {
     await writeFile(zipPath, zipBytes);
+
+    // 7zip-bin ships the Linux binary without the executable bit set, so the
+    // spawn fails with EACCES on Railway. Mark it executable once before use.
+    // (Windows ignores the POSIX mode, so skip it to avoid surprising local runs.)
+    if (process.platform !== "win32") {
+      try {
+        await chmod(path7za, 0o755);
+      } catch (err: any) {
+        console.warn(`Could not chmod 7-Zip binary at ${path7za}: ${err?.message ?? err}`);
+      }
+    }
 
     await new Promise<void>((resolve, reject) => {
       const stream = extractFull(zipPath, outDir, {

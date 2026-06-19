@@ -125,7 +125,7 @@ Your job: take the user's prioritised goals AND to-dos for a single day and plac
 HARD RULES
 - Working hours window will be supplied per request (start and end in HH:MM, Europe/London local time).
 - Lunch: a ${LUNCH_DURATION_MIN}-minute lunch break which will ALSO be booked into the user's Outlook calendar. Default start time ${LUNCH_DEFAULT_START}. If a 45-minute work block would butt into that window, you MAY delay lunch — but lunch must start no later than ${LUNCH_LATEST_START} (latest possible window: ${LUNCH_LATEST_START}–13:30). Pick a single ${LUNCH_DURATION_MIN}-minute slot, return it in the "lunch" field of the output, and DO NOT schedule any work blocks across it. If the user's existing calendar already shows a lunch / meal event today, set "lunch": null and treat that existing event as the lunch break.
-- Never overlap an existing calendar event (you'll be given them).
+- Never overlap an existing calendar event that's NOT tagged "(free, ignore)", "(tentative, ignore)" or "(all-day, ignore)". Those marked entries are visible to you for context but don't block work — feel free to schedule across them.
 - Never overlap two scheduled blocks (or lunch) with each other.
 - Schedule items of type "main", "priority", AND "todo".
 - Fitness sessions (weights, spin, run, cycle, gym, swim, yoga, etc.) and Chi Kung sessions are handled separately BEFORE you're called — they're already removed from the list you see. Don't second-guess them.
@@ -171,7 +171,20 @@ interface ScheduleInput {
 function buildUserMessage(input: ScheduleInput): string {
   const eventLines = input.events.length
     ? input.events
-        .map((e) => `- ${e.startISO} → ${e.endISO}: ${e.subject}${e.isAllDay ? " (all-day)" : ""}${e.showAs ? ` [${e.showAs}]` : ""}`)
+        .map((e) => {
+          const sa = (e.showAs ?? "").toLowerCase();
+          const ignored = e.isAllDay || sa === "free" || sa === "tentative";
+          const tag = e.isAllDay
+            ? " (all-day, ignore)"
+            : sa === "free"
+              ? " (free, ignore)"
+              : sa === "tentative"
+                ? " (tentative, ignore)"
+                : sa
+                  ? ` [${sa}]`
+                  : "";
+          return `- ${e.startISO} → ${e.endISO}: ${e.subject}${tag}`;
+        })
         .join("\n")
     : "(no existing events today)";
 
@@ -254,6 +267,17 @@ function inWorkingHours(startIso: string, endIso: string, startHhmm: string, end
  * there's an afternoon pick-up, the end of work is pulled back to its
  * start. Otherwise defaults to 08:00–18:00.
  */
+/**
+ * An event counts as busy unless its Outlook `showAs` is explicitly "free"
+ * or "tentative". All-day events also don't block. ICS events have no
+ * showAs and so default to busy (correct for shared family calendars).
+ */
+function isBusyEvent(e: CalendarEvent): boolean {
+  if (e.isAllDay) return false;
+  const sa = (e.showAs ?? "").toLowerCase();
+  return sa !== "free" && sa !== "tentative";
+}
+
 function workingHoursFromEvents(events: CalendarEvent[]): { start: string; end: string } {
   const { morningEnd, afternoonStart } = findSchoolRunBounds(events);
   const defaultStart = "08:00";
@@ -360,9 +384,9 @@ export async function scheduleDayWithClaude(date: string): Promise<RunResult> {
   const dayOfWeek = new Date(`${date}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "long" });
 
   // Build the busy-range list once - used by both the fitness pre-scheduler
-  // and the post-Claude validator.
+  // and the post-Claude validator. Only "busy"-equivalent events block.
   const eventRanges = events
-    .filter((e) => !e.isAllDay)
+    .filter(isBusyEvent)
     .map((e) => ({ start: parseLocalIso(e.startISO.replace("Z", "")), end: parseLocalIso(e.endISO.replace("Z", "")) }));
 
   // ---- DEDUP & FITNESS PRE-SCHEDULING ----

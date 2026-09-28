@@ -13,8 +13,8 @@
 # =====================================================================
 
 config:
-  # The accountant's sending address the agent looks for each month.
-  # Can also be set via the ACCOUNTANT_EMAIL env var (env wins if set).
+  # Informational only — not read by the agent. The agent matches any sender
+  # at ACCOUNTANT_DOMAIN (env; default carpenterbox.com), see server/payslip.ts.
   accountant_email: "rachel.madden-bandey@carpenterbox.com"
 
 # aliases: optional alternate names the payee appears under in the payroll

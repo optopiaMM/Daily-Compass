@@ -3,8 +3,19 @@ import crypto from "crypto";
 const SCOPES_READ_WRITE = "Calendars.ReadWrite Mail.Read User.Read offline_access openid";
 const SCOPES_READ_ONLY = "Calendars.Read User.Read offline_access openid";
 
+// Requested only at sign-in (the authorize URL), not on code exchange / refresh:
+// asking a refresh for a scope an already-connected account hasn't consented to
+// would fail the refresh and break calendar sync until the account is
+// reconnected. Once consented, Graph tokens carry it anyway. Used by the payslip
+// agent's summary emails.
+const CONSENT_ONLY_SCOPES_READ_WRITE = "Mail.Send";
+
 function scopesFor(role: "read_write" | "read_only"): string {
   return role === "read_only" ? SCOPES_READ_ONLY : SCOPES_READ_WRITE;
+}
+
+function consentScopesFor(role: "read_write" | "read_only"): string {
+  return role === "read_only" ? SCOPES_READ_ONLY : `${SCOPES_READ_WRITE} ${CONSENT_ONLY_SCOPES_READ_WRITE}`;
 }
 
 interface MsConfig {
@@ -74,7 +85,7 @@ export function buildAuthorizeUrl(payload: StatePayload): string {
     response_type: "code",
     redirect_uri: cfg.redirectUri,
     response_mode: "query",
-    scope: scopesFor(payload.role),
+    scope: consentScopesFor(payload.role),
     state,
     prompt: "select_account",
   });

@@ -30,7 +30,7 @@ import { db } from "./db";
 import { storage } from "./storage";
 import { getValidAccessToken } from "./outlook";
 import { createCalendarEvent } from "./graph";
-import { getLatestMessageFromSender, getMessageAttachments } from "./graph-mail";
+import { getLatestPayrollMessage, getMessageAttachments, sendMail } from "./graph-mail";
 import { standingOrders, payslipRuns, payslipActions } from "@shared/schema";
 
 const MODEL = "claude-opus-4-8";
@@ -40,10 +40,43 @@ const APPT_TIME = "08:00";
 const APPT_DURATION_MIN = 15;
 const HMRC_LEAD_WORKING_DAYS = 2; // HMRC appt lands this many working days before due
 
-function accountantEmail(): string {
-  const fromEnv = process.env.ACCOUNTANT_EMAIL;
-  if (fromEnv) return fromEnv;
-  throw new Error("ACCOUNTANT_EMAIL not set (and no config fallback wired).");
+const DEFAULT_ACCOUNTANT_DOMAIN = "carpenterbox.com";
+
+/**
+ * The accountant firm's email domain — any sender at it is accepted, since the
+ * firm sends payroll from whichever staff member is handling it that month.
+ * ACCOUNTANT_DOMAIN wins; otherwise the domain of the legacy ACCOUNTANT_EMAIL;
+ * otherwise carpenterbox.com.
+ */
+function accountantDomain(): string {
+  const domain = process.env.ACCOUNTANT_DOMAIN?.trim().replace(/^@/, "");
+  if (domain) return domain.toLowerCase();
+  const email = process.env.ACCOUNTANT_EMAIL?.trim();
+  if (email?.includes("@")) return email.slice(email.lastIndexOf("@") + 1).toLowerCase();
+  return DEFAULT_ACCOUNTANT_DOMAIN;
+}
+
+/** Who gets the "processed" / "needs attention" summary emails. */
+function notifyEmail(): string {
+  return process.env.NOTIFY_EMAIL?.trim() || "mark.mills@optopia.co.uk";
+}
+
+/**
+ * Best-effort summary email for a completed or needs_review run. Called only
+ * after the run is persisted, so a send failure can't cause reprocessing; it is
+ * logged and swallowed.
+ */
+async function sendNotification(token: string, subject: string, bodyHtml: string): Promise<void> {
+  const to = notifyEmail();
+  try {
+    await sendMail(token, to, subject, bodyHtml);
+    console.log(`[payslip:diag] notification sent to ${to}: "${subject}"`);
+  } catch (err: any) {
+    console.warn(
+      `[payslip:diag] notification to ${to} FAILED ("${subject}"): ${err?.message ?? err}. ` +
+        `If this is a 403, reconnect the read_write Outlook account to grant Mail.Send.`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -584,10 +617,18 @@ export async function runPayslipAgent(): Promise<PayslipRunResult> {
   if (!account) throw new Error("No read_write Outlook account connected.");
   const token = await getValidAccessToken(account.accountKey);
 
-  // 1. Latest email from the accountant
-  const email = await getLatestMessageFromSender(token, accountantEmail());
+  // 1. Newest email from anyone at the accountant's domain that has an
+  // attachment (the payslip zip) — other mail from the firm is passed over.
+  const domain = accountantDomain();
+  console.log(`[payslip:diag] accountant domain: "${domain}"`);
+  const email = await getLatestPayrollMessage(token, domain);
   if (!email) {
-    return { ok: true, status: "skipped", message: "No email from the accountant found." };
+    console.log(`[payslip:diag] no recent @${domain} email with an attachment — skipping.`);
+    return {
+      ok: true,
+      status: "skipped",
+      message: `No payroll email found (no recent email from @${domain} has an attachment).`,
+    };
   }
 
   // 2. Idempotency — already processed this message?
@@ -767,8 +808,9 @@ export async function runPayslipAgent(): Promise<PayslipRunResult> {
   });
 
   let hmrcEvent: { id: string } | null = null;
+  let hmrcDate: string | null = null;
   if (hmrc) {
-    const hmrcDate = workingDaysBefore(hmrc.dueDate, HMRC_LEAD_WORKING_DAYS);
+    hmrcDate = workingDaysBefore(hmrc.dueDate, HMRC_LEAD_WORKING_DAYS);
     hmrcEvent = await createCalendarEvent(token, {
       subject: `Pay HMRC — ${data.period}`,
       bodyHtml: buildHmrcBody(data.period, hmrc, hmrcNotes),
@@ -816,6 +858,13 @@ export async function runPayslipAgent(): Promise<PayslipRunResult> {
     }
   }
 
+  // 10. Summary email (after persisting, so a send failure can't cause a rerun)
+  await sendNotification(
+    token,
+    `Payslip agent: processed ${data.period}`,
+    buildSummaryEmail(data.period, actions, hmrc, changesDate, hmrcDate, combinedNotes),
+  );
+
   return {
     ok: true,
     status: "ok",
@@ -860,15 +909,51 @@ function buildHmrcBody(period: string, hmrc: HmrcFigure, notes: string[]): strin
   ].join("");
 }
 
-/** Records a run that needs manual attention and drops a single nudge appointment. */
+function buildSummaryEmail(
+  period: string,
+  actions: PayeeAction[],
+  hmrc: HmrcFigure | null,
+  changesDate: string,
+  hmrcDate: string | null,
+  notes: string,
+): string {
+  const actionLines = actions.map((a) => {
+    if (a.actionType === "no_action") return `• ${escapeHtml(a.payeeName)} — no action (${fmt(a.requiredPence)})`;
+    if (a.actionType === "change")
+      return `• <strong>${escapeHtml(a.payeeName)} — change ${fmt(a.previousPence ?? 0)} to ${fmt(a.requiredPence)}</strong>`;
+    return `• <strong>${escapeHtml(a.payeeName)} — not in baseline; verify / set up standing order (${fmt(a.requiredPence)})</strong>`;
+  });
+  const hmrcLine = hmrc
+    ? `• ${fmt(poundsToPence(hmrc.amountGbp))} due ${escapeHtml(hmrc.dueDate)}, reference <strong>${escapeHtml(hmrc.reference)}</strong>` +
+      (hmrc.account ? `, account ${escapeHtml(hmrc.account)}` : "")
+    : "• No PAYE due";
+  const appts = [
+    `• Payslip actions — ${escapeHtml(changesDate)} ${APPT_TIME}`,
+    hmrcDate ? `• Pay HMRC — ${escapeHtml(hmrcDate)} ${APPT_TIME}` : "",
+  ].filter(Boolean);
+  return [
+    `<p><strong>Payslip agent processed ${escapeHtml(period)}</strong></p>`,
+    `<p><strong>Standing orders</strong><br>${actionLines.join("<br>")}</p>`,
+    `<p><strong>HMRC</strong><br>${hmrcLine}</p>`,
+    `<p><strong>Calendar appointments created</strong><br>${appts.join("<br>")}</p>`,
+    notes ? `<p><strong>Notes</strong><br>${escapeHtml(notes)}</p>` : "",
+    `<p style="color:#888;font-size:11px">Sent by the payslip agent</p>`,
+  ].join("");
+}
+
+/**
+ * Records a run that needs manual attention, drops a single nudge appointment
+ * and emails a "needs attention" notification.
+ */
 async function recordNeedsReview(
-  email: { id: string; receivedDateTime: string },
+  email: { id: string; receivedDateTime: string; subject: string },
   reason: string,
 ): Promise<PayslipRunResult> {
+  let token: string | null = null;
   try {
     const account = await storage.getReadWriteOauthToken("microsoft");
     if (account) {
-      const token = await getValidAccessToken(account.accountKey);
+      token = await getValidAccessToken(account.accountKey);
       const date = nextWeekday(email.receivedDateTime.slice(0, 10));
       await createCalendarEvent(token, {
         subject: "Payslip agent needs attention",
@@ -883,5 +968,20 @@ async function recordNeedsReview(
     /* best-effort nudge only */
   }
   await db.insert(payslipRuns).values({ period: "(unknown)", sourceMessageId: email.id, status: "needs_review", notes: reason });
+  if (token) {
+    await sendNotification(
+      token,
+      "Payslip agent needs attention",
+      [
+        `<p>The payslip agent couldn't process the latest payroll email automatically.</p>`,
+        `<p><strong>What went wrong</strong><br><em>${escapeHtml(reason)}</em></p>`,
+        `<p><strong>Email</strong><br>"${escapeHtml(email.subject)}", received ${escapeHtml(email.receivedDateTime)}</p>`,
+        `<p>Open the accountant's email and handle the payments manually.</p>`,
+        `<p style="color:#888;font-size:11px">Sent by the payslip agent</p>`,
+      ].join(""),
+    );
+  } else {
+    console.warn(`[payslip:diag] needs_review notification not sent: no Outlook token available.`);
+  }
   return { ok: false, status: "needs_review", reasons: [reason] };
 }

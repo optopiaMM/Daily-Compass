@@ -1,13 +1,13 @@
 // server/graph-mail.ts
 //
-// Outlook / Microsoft Graph mail reading for the payslip agent.
+// Outlook / Microsoft Graph mail reading (and notification sending) for the payslip agent.
 // Sits alongside graph.ts (which handles calendar). Requires the
-// "Mail.Read" scope to be added to the OAuth consent — see PAYSLIP-AGENT-SETUP.md.
+// "Mail.Read" and "Mail.Send" scopes in the OAuth consent — see PAYSLIP-AGENT-SETUP.md.
 //
 // NOTE: this is the ONE module that depends on which mailbox the accountant
 // emails into. This version reads Outlook via Graph. If the accountant emails
-// Gmail instead, replace this file with a Gmail-API equivalent (same two
-// exported functions) or forward those emails into the connected Outlook
+// Gmail instead, replace this file with a Gmail-API equivalent (same exported
+// functions) or forward those emails into the connected Outlook
 // account.
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
@@ -43,7 +43,7 @@ function htmlToText(html: string): string {
     .trim();
 }
 
-// `from` is included so the fallback path can filter to the sender in JS.
+// `from` is included so results can be filtered to the sender domain in JS.
 const MESSAGE_SELECT = "id,subject,receivedDateTime,hasAttachments,body,from";
 
 /** Build a MailMessage from a raw Graph message resource. */
@@ -61,11 +61,12 @@ function toMailMessage(m: any): MailMessage {
 
 /** [payslip:diag] Log the candidate list Graph returned, in the order returned. */
 function logCandidates(label: string, items: any[]): void {
-  console.log(`[payslip:diag] getLatestMessageFromSender: ${label} returned ${items.length} message(s)`);
+  console.log(`[payslip:diag] getLatestPayrollMessage: ${label} returned ${items.length} message(s)`);
   items.forEach((it, i) => {
     const parsed = new Date(it.receivedDateTime).getTime();
     console.log(
       `[payslip:diag]   candidate[${i}] received=${it.receivedDateTime} (epoch=${Number.isNaN(parsed) ? "UNPARSEABLE" : parsed}) ` +
+        `from=${fromAddress(it) || "(none)"} hasAttachments=${!!it.hasAttachments} ` +
         `subject="${it.subject ?? "(no subject)"}" id=${it.id}`,
     );
   });
@@ -76,6 +77,16 @@ function sortNewestFirst(items: any[]): any[] {
   return [...items].sort(
     (a, b) => new Date(b.receivedDateTime).getTime() - new Date(a.receivedDateTime).getTime(),
   );
+}
+
+/** Lower-cased, trimmed from-address of a raw Graph message ("" if absent). */
+function fromAddress(m: any): string {
+  return (m.from?.emailAddress?.address ?? "").trim().toLowerCase();
+}
+
+/** Distinct from-addresses in a list, for [payslip:diag] logging. */
+function distinctFrom(items: any[]): string[] {
+  return Array.from(new Set(items.map((it) => fromAddress(it) || "(none)")));
 }
 
 /**
@@ -100,7 +111,7 @@ async function searchMessages(
   if (!res.ok) {
     const text = await res.text();
     console.log(
-      `[payslip:diag] getLatestMessageFromSender: $search ${searchQuery} failed (${res.status}). error=${text}`,
+      `[payslip:diag] getLatestPayrollMessage: $search ${searchQuery} failed (${res.status}). error=${text}`,
     );
     return null;
   }
@@ -109,63 +120,60 @@ async function searchMessages(
 }
 
 /**
- * Returns the genuinely-newest message from a given sender, reliably even in a
- * very high-volume inbox where the sender's mail is far older than the newest
- * page. A plain $filter on `from` triggers Graph's InefficientFilter error, so
- * we use $search (KQL) instead:
+ * Returns the newest message from ANY sender at a given domain (e.g.
+ * "carpenterbox.com") that HAS an attachment — the payroll email carries the
+ * payslip zip, while other mail from the firm (follow-ups, queries) usually
+ * doesn't. Reliable even in a very high-volume inbox where that mail is far
+ * older than the newest page. A plain $filter on `from` triggers Graph's
+ * InefficientFilter error, so we use $search (KQL) instead:
  *
- *   1. PRIMARY  — $search="from:<full address>", sort newest-first in JS.
- *   2. DOMAIN   — if (1) is empty, $search="from:<domain>" (address may differ
- *                 slightly); log the from-addresses found.
- *   3. SCAN     — last resort: newest 50 messages with no filter, matched to the
- *                 sender address in JS (case-insensitive, trimmed).
+ *   1. SEARCH — $search="from:<domain>", keep only from-addresses ending in
+ *               "@<domain>" (case-insensitive; KQL matching is fuzzy) that
+ *               have attachments, sort newest-first in JS.
+ *   2. SCAN   — if (1) fails or finds nothing: newest 50 messages with no
+ *               filter, matched the same way in JS.
+ *
+ * Returns null if no recent domain email has an attachment.
  */
-export async function getLatestMessageFromSender(
+export async function getLatestPayrollMessage(
   accessToken: string,
-  senderEmail: string,
+  senderDomain: string,
 ): Promise<MailMessage | null> {
-  const target = senderEmail.trim().toLowerCase();
-  const domain = target.includes("@") ? target.slice(target.indexOf("@") + 1) : target;
+  const domain = senderDomain.trim().toLowerCase().replace(/^@/, "");
+  const suffix = `@${domain}`;
+  const matchesDomain = (m: any) => fromAddress(m).endsWith(suffix);
+  const isCandidate = (m: any) => matchesDomain(m) && !!m.hasAttachments;
 
-  // --- 1. PRIMARY: $search by full from-address ---
-  const primary = await searchMessages(accessToken, `from:${target}`);
-  if (primary && primary.length > 0) {
-    const sorted = sortNewestFirst(primary);
-    logCandidates(`PRIMARY $search "from:${target}" (sorted newest-first)`, sorted);
-    const m = sorted[0];
+  // --- 1. SEARCH: $search by domain, then strict suffix match in JS ---
+  const searched = await searchMessages(accessToken, `from:${domain}`);
+  if (searched && searched.length > 0) {
+    const sorted = sortNewestFirst(searched);
+    logCandidates(`SEARCH $search "from:${domain}" (sorted newest-first)`, sorted);
+    const seen = distinctFrom(sorted);
     console.log(
-      `[payslip:diag] getLatestMessageFromSender: PRIMARY ($search from-address) selected received=${m.receivedDateTime} ` +
-        `subject="${m.subject ?? "(no subject)"}" id=${m.id}`,
+      `[payslip:diag] getLatestPayrollMessage: SEARCH from-addresses (${seen.length} distinct): ${seen.join(", ")}`,
     );
-    return toMailMessage(m);
+    const domainCount = sorted.filter(matchesDomain).length;
+    const items = sorted.filter(isCandidate);
+    if (items.length > 0) {
+      const m = items[0];
+      console.log(
+        `[payslip:diag] getLatestPayrollMessage: SEARCH selected newest "${suffix}" message with attachments ` +
+          `(${domainCount} of ${sorted.length} matched the domain, ${items.length} with attachments) received=${m.receivedDateTime} ` +
+          `from=${fromAddress(m)} hasAttachments=${!!m.hasAttachments} subject="${m.subject ?? "(no subject)"}" id=${m.id}`,
+      );
+      return toMailMessage(m);
+    }
+    console.log(
+      `[payslip:diag] getLatestPayrollMessage: SEARCH found ${domainCount} "${suffix}" message(s) but none with attachments — trying last-resort scan`,
+    );
+  } else {
+    console.log(
+      `[payslip:diag] getLatestPayrollMessage: SEARCH $search "from:${domain}" returned ${searched ? 0 : "an error"} — trying last-resort scan`,
+    );
   }
-  console.log(
-    `[payslip:diag] getLatestMessageFromSender: PRIMARY $search "from:${target}" returned 0 — trying domain search`,
-  );
 
-  // --- 2. DOMAIN: $search by domain only (address may differ slightly) ---
-  const byDomain = await searchMessages(accessToken, `from:${domain}`);
-  if (byDomain && byDomain.length > 0) {
-    const sorted = sortNewestFirst(byDomain);
-    const seen = Array.from(
-      new Set(sorted.map((it) => (it.from?.emailAddress?.address ?? "(none)").trim().toLowerCase())),
-    );
-    logCandidates(`DOMAIN $search "from:${domain}" (sorted newest-first)`, sorted);
-    console.log(
-      `[payslip:diag] getLatestMessageFromSender: DOMAIN search from-addresses (${seen.length} distinct): ${seen.join(", ")}`,
-    );
-    const m = sorted[0];
-    console.log(
-      `[payslip:diag] getLatestMessageFromSender: DOMAIN ($search domain) selected received=${m.receivedDateTime} ` +
-        `subject="${m.subject ?? "(no subject)"}" id=${m.id} from=${m.from?.emailAddress?.address ?? "(none)"}`,
-    );
-    return toMailMessage(m);
-  }
-  console.log(
-    `[payslip:diag] getLatestMessageFromSender: DOMAIN $search "from:${domain}" returned 0 — trying last-resort scan`,
-  );
-
-  // --- 3. SCAN: newest 50 messages, no filter, matched in JS ---
+  // --- 2. SCAN: newest 50 messages, no filter, matched to the domain in JS ---
   const scanUrl =
     `${GRAPH}/me/messages?$orderby=receivedDateTime%20desc&$top=50&$select=${MESSAGE_SELECT}`;
   const scanRes = await fetch(scanUrl, {
@@ -178,30 +186,27 @@ export async function getLatestMessageFromSender(
   const scanBody = (await scanRes.json()) as { value?: any[] };
   const all = scanBody.value ?? [];
   console.log(
-    `[payslip:diag] getLatestMessageFromSender: SCAN fetched ${all.length} message(s) (newest 50, no filter); ` +
-      `matching against "${target}"`,
+    `[payslip:diag] getLatestPayrollMessage: SCAN fetched ${all.length} message(s) (newest 50, no filter); ` +
+      `matching from-addresses ending in "${suffix}"`,
   );
-  const items = all.filter(
-    (it) => (it.from?.emailAddress?.address ?? "").trim().toLowerCase() === target,
-  );
+  const domainItems = all.filter(matchesDomain);
+  const items = domainItems.filter((m) => !!m.hasAttachments);
 
-  logCandidates(`SCAN JS-filtered to "${target}"`, items);
+  logCandidates(`SCAN JS-filtered to "${suffix}"`, domainItems);
   if (items.length === 0) {
-    const seen = Array.from(
-      new Set(all.map((it) => (it.from?.emailAddress?.address ?? "(none)").trim().toLowerCase())),
-    );
+    const seen = distinctFrom(all);
     console.log(
-      `[payslip:diag] getLatestMessageFromSender: SCAN found no match for "${target}". ` +
+      `[payslip:diag] getLatestPayrollMessage: SCAN found ${domainItems.length} "${suffix}" message(s), none with attachments. ` +
         `From-addresses seen in newest 50 (${seen.length} distinct): ${seen.join(", ")}`,
     );
     return null;
   }
 
-  // Page is already newest-first; first match is the newest from the sender.
+  // Page is already newest-first; first match is the newest qualifying message.
   const m = items[0];
   console.log(
-    `[payslip:diag] getLatestMessageFromSender: SCAN path selected received=${m.receivedDateTime} ` +
-      `subject="${m.subject ?? "(no subject)"}" id=${m.id}`,
+    `[payslip:diag] getLatestPayrollMessage: SCAN path selected newest "${suffix}" message with attachments received=${m.receivedDateTime} ` +
+      `from=${fromAddress(m)} hasAttachments=${!!m.hasAttachments} subject="${m.subject ?? "(no subject)"}" id=${m.id}`,
   );
   return toMailMessage(m);
 }
@@ -247,4 +252,35 @@ export async function getMessageAttachments(
     });
   }
   return attachments;
+}
+
+/**
+ * Sends an HTML email from the connected account's mailbox. Requires the
+ * "Mail.Send" delegated scope — see PAYSLIP-AGENT-SETUP.md.
+ */
+export async function sendMail(
+  accessToken: string,
+  to: string,
+  subject: string,
+  bodyHtml: string,
+): Promise<void> {
+  const res = await fetch(`${GRAPH}/me/sendMail`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      message: {
+        subject,
+        body: { contentType: "HTML", content: bodyHtml },
+        toRecipients: [{ emailAddress: { address: to } }],
+      },
+      saveToSentItems: true,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Graph sendMail failed: ${res.status} ${text}`);
+  }
 }

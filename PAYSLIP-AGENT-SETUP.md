@@ -87,6 +87,12 @@ const SCOPES_READ_WRITE = "Calendars.ReadWrite Mail.Read User.Read offline_acces
 Then **re-consent once** by visiting `/api/outlook/connect` again, so the new
 scope is granted.
 
+The summary emails (see §6) also need `Mail.Send`. It is requested only at
+sign-in (`CONSENT_ONLY_SCOPES_READ_WRITE`), not on token refresh, so existing
+connections keep working — but you must **reconnect the read_write account
+once** to grant it. Until then the agent runs normally and logs a
+`[payslip:diag] notification … FAILED` line instead of sending.
+
 ## 4. Route — add to `server/routes.ts`
 
 ```ts
@@ -116,15 +122,23 @@ await seedStandingOrdersIfEmpty();
 ## 6. Environment
 
 ```
-ACCOUNTANT_EMAIL=accounts@your-accountant.co.uk
+ACCOUNTANT_DOMAIN=carpenterbox.com
 PAYSLIP_ZIP_PASSWORD=the-fixed-zip-password
+NOTIFY_EMAIL=mark.mills@optopia.co.uk
 ```
 
-(`ACCOUNTANT_EMAIL` can also live in `payees.yaml` under `config:`, but the env
-var is simplest on Railway. `PAYSLIP_ZIP_PASSWORD` is the fixed password the
+(The agent takes the newest email from **any** sender at `ACCOUNTANT_DOMAIN`
+— the firm sends payroll from different staff — that has an attachment,
+passing over follow-ups without one; if none of the recent ones do, it skips
+with "No payroll email found". If
+`ACCOUNTANT_DOMAIN` is unset, the domain of the legacy `ACCOUNTANT_EMAIL` is
+used, then `carpenterbox.com`. `PAYSLIP_ZIP_PASSWORD` is the fixed password the
 accountant's payroll software uses to encrypt the payslip zip — keep it in the
 environment only, never in the repo. `ANTHROPIC_API_KEY` is already used by the
-existing agent.)
+existing agent. `NOTIFY_EMAIL` (default `mark.mills@optopia.co.uk`) receives a
+"Payslip agent: processed <period>" summary after a successful run and a
+"Payslip agent needs attention" email on a needs_review run; skipped runs send
+nothing, so the daily cron doesn't email daily.)
 
 ## 7. Monthly trigger (Railway cron)
 

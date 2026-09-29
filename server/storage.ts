@@ -3,7 +3,7 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import {
   morningSessions, gratitudeEntries, livingPowerfullyScores,
   weeklyGoals, weeklyGoalTemplates, dailyItems, dailyQuotes,
-  annualTargets, ninetyDayGoals, oauthTokens, calendarFeeds,
+  annualTargets, ninetyDayGoals, oauthTokens, calendarFeeds, yearwiseSessions,
   type InsertGratitudeEntry, type InsertLivingPowerfullyScore,
   type InsertDailyItem, type InsertDailyQuote,
   type InsertAnnualTarget, type InsertNinetyDayGoal,
@@ -13,6 +13,7 @@ import {
   type WeeklyGoalTemplate,
   type OauthToken, type InsertOauthToken,
   type CalendarFeed,
+  type YearwiseSession, type InsertYearwiseSession,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -51,6 +52,10 @@ export interface IStorage {
   scheduleItemForDate(itemId: number, reviewDate: string): Promise<void>;
   getDailyQuote(date: string): Promise<DailyQuote | undefined>;
   saveDailyQuote(quote: InsertDailyQuote): Promise<DailyQuote>;
+  getYearwiseSessions(): Promise<YearwiseSession[]>;
+  getYearwiseSession(id: number): Promise<YearwiseSession | undefined>;
+  createYearwiseSession(data: InsertYearwiseSession): Promise<YearwiseSession>;
+  saveYearwiseAnswers(id: number, answers: Record<string, unknown>, planStart: string): Promise<YearwiseSession | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -364,6 +369,27 @@ export class DatabaseStorage implements IStorage {
       return existing;
     }
     return result;
+  }
+  async getYearwiseSessions() {
+    return db.select().from(yearwiseSessions).orderBy(desc(yearwiseSessions.updatedAt));
+  }
+
+  async getYearwiseSession(id: number) {
+    const [row] = await db.select().from(yearwiseSessions).where(eq(yearwiseSessions.id, id));
+    return row;
+  }
+
+  async createYearwiseSession(data: InsertYearwiseSession) {
+    const [row] = await db.insert(yearwiseSessions).values(data).returning();
+    return row;
+  }
+
+  async saveYearwiseAnswers(id: number, answers: Record<string, unknown>, planStart: string) {
+    const [row] = await db.update(yearwiseSessions)
+      .set({ answers, planStart, updatedAt: new Date() })
+      .where(eq(yearwiseSessions.id, id))
+      .returning();
+    return row;
   }
 }
 

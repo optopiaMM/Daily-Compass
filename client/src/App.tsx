@@ -4,11 +4,16 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Home from "@/pages/home";
+import YearwisePage from "@/pages/yearwise";
+import YearwiseSessionPage from "@/pages/yearwise-session";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/yearwise" component={YearwisePage} />
+      <Route path="/yearwise/:sessionId" component={YearwiseSessionPage} />
+      <Route path="/yearwise/:sessionId/:step" component={YearwiseSessionPage} />
     </Switch>
   );
 }

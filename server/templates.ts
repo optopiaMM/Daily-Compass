@@ -15,6 +15,7 @@ const PILLAR_MAP: Record<string, string> = {
   "People": "People",
   "Personal Development": "Personal Development & Learning",
   "Personal Development & Learning": "Personal Development & Learning",
+  "Personal Development and Learning": "Personal Development & Learning",
   "Physical Environment": "Physical Environment",
 };
 

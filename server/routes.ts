@@ -14,6 +14,8 @@ import {
 } from "./outlook";
 import { scheduleDayWithClaude, clearDailyCompassEventsForDay } from "./agent";
 import { runPayslipAgent } from "./payslip";
+import { z } from "zod";
+import { iso, planStart } from "@shared/yearwise";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
 
@@ -150,6 +152,41 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       await syncWeeklyGoalTemplatesFromCsv();
       res.json({ success: true });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Yearwise ---------------------------------------------------------------
+  app.get("/api/yearwise-sessions", async (_req, res) => {
+    try {
+      res.json(await storage.getYearwiseSessions());
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.post("/api/yearwise-sessions", async (req, res) => {
+    try {
+      const kind = req.body?.kind === "quarterly" ? "quarterly" : "annual";
+      const created = await storage.createYearwiseSession({ kind, planStart: iso(planStart({})), answers: {} });
+      res.json(created);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.get("/api/yearwise-sessions/:id", async (req, res) => {
+    try {
+      const session = await storage.getYearwiseSession(parseInt(req.params.id));
+      if (!session) return res.status(404).json({ message: "Session not found" });
+      res.json(session);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Autosave: replaces the whole answers object and keeps plan_start in step with it.
+  app.patch("/api/yearwise-sessions/:id/answers", async (req, res) => {
+    try {
+      const parsed = z.object({ answers: z.record(z.unknown()) }).safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "answers must be an object" });
+      const { answers } = parsed.data;
+      const saved = await storage.saveYearwiseAnswers(parseInt(req.params.id), answers, iso(planStart(answers)));
+      if (!saved) return res.status(404).json({ message: "Session not found" });
+      res.json({ id: saved.id, planStart: saved.planStart, updatedAt: saved.updatedAt });
     } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 

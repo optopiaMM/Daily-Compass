@@ -212,7 +212,7 @@ export const weeklyGoals = pgTable("weekly_goals", {
   isTopFocus: boolean("is_top_focus").notNull().default(false),
   source: text("source").notNull().default("manual"), // manual | yearwise | habit | review
   habitId: integer("habit_id").references(() => habits.id, { onDelete: "set null" }),
-  // set null so the CSV sync can still wipe and reload weekly_goal_templates.
+  // set null so the CSV sync can still delete and reload its source='csv' rows in weekly_goal_templates.
   weeklyGoalTemplateId: integer("weekly_goal_template_id").references(() => weeklyGoalTemplates.id, { onDelete: "set null" }),
 });
 

@@ -19,7 +19,7 @@
 //   7. Record the run + actions; update the baseline to the latest figures.
 
 import Anthropic from "@anthropic-ai/sdk";
-import { extractFull } from "node-7z";
+import * as sevenNs from "node-7z";
 import { path7za } from "7zip-bin";
 import { PDFDocument } from "pdf-lib";
 import { mkdtemp, writeFile, readFile, readdir, rm, chmod } from "fs/promises";
@@ -32,6 +32,9 @@ import { getValidAccessToken } from "./outlook";
 import { createCalendarEvent } from "./graph";
 import { getLatestPayrollMessage, getMessageAttachments, sendMail } from "./graph-mail";
 import { standingOrders, payslipRuns, payslipActions } from "@shared/schema";
+
+// node-7z is CommonJS; Node's ESM loader only exposes it as the default export.
+const { extractFull } = ((sevenNs as any).default ?? sevenNs) as typeof sevenNs;
 
 const MODEL = "claude-opus-4-8";
 const TIME_ZONE = "Europe/London";

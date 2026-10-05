@@ -15,6 +15,22 @@ import {
   type CalendarFeed,
   type YearwiseSession, type InsertYearwiseSession,
 } from "@shared/schema";
+import type { Answers } from "@shared/yearwise";
+import { commitYearwiseSession, type CommitResult } from "./yearwise-commit";
+
+// A weekly goal as the weekly view saves it. The link fields are set when the goal
+// came from a plan row (weekly_goal_templates), so it keeps that row's own
+// 90-day goal rather than defaulting to the "current" one.
+export interface WeeklyGoalInput {
+  category: string;
+  goalText: string;
+  sortOrder: number;
+  isTopFocus?: boolean;
+  ninetyDayGoalId?: number | null;
+  weeklyGoalTemplateId?: number | null;
+  source?: string;
+  habitId?: number | null;
+}
 
 export interface IStorage {
   getAnnualTarget(): Promise<AnnualTarget | undefined>;
@@ -37,7 +53,7 @@ export interface IStorage {
   createGratitudeEntry(entry: InsertGratitudeEntry): Promise<GratitudeEntry>;
   createLivingPowerfullyScores(entries: InsertLivingPowerfullyScore[]): Promise<void>;
   getWeeklyGoals(weekStartDate: string): Promise<WeeklyGoal[]>;
-  createWeeklyGoals(weekStartDate: string, goals: { category: string; goalText: string; sortOrder: number; isTopFocus?: boolean }[]): Promise<void>;
+  createWeeklyGoals(weekStartDate: string, goals: WeeklyGoalInput[]): Promise<void>;
   addWeeklyGoal(weekStartDate: string, category: string, goalText: string): Promise<WeeklyGoal>;
   getWeeklyGoalCountByCategory(weekStartDate: string, category: string): Promise<number>;
   markWeeklyGoalComplete(goalId: number): Promise<void>;
@@ -56,6 +72,7 @@ export interface IStorage {
   getYearwiseSession(id: number): Promise<YearwiseSession | undefined>;
   createYearwiseSession(data: InsertYearwiseSession): Promise<YearwiseSession>;
   saveYearwiseAnswers(id: number, answers: Record<string, unknown>, planStart: string): Promise<YearwiseSession | undefined>;
+  commitYearwiseSession(id: number, answers: Answers): Promise<CommitResult | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -77,22 +94,30 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
 
+  // Yearwise can create up to three 90-day goals for the same window, all with the
+  // same created_at. Callers that want "the" current goal get goal 1 (yearwise_key
+  // "g0"), then 2, then 3; rows without a key sort after them, then newest id.
   async getCurrentNinetyDayGoal() {
     const today = new Date().toISOString().split("T")[0];
+    const order = [
+      desc(ninetyDayGoals.createdAt),
+      sql`${ninetyDayGoals.yearwiseKey} asc nulls last`,
+      desc(ninetyDayGoals.id),
+    ];
     const [inWindow] = await db.select().from(ninetyDayGoals)
       .where(and(
         eq(ninetyDayGoals.active, true),
         sql`${ninetyDayGoals.startDate} <= ${today}`,
         sql`${ninetyDayGoals.endDate} >= ${today}`,
       ))
-      .orderBy(desc(ninetyDayGoals.createdAt))
+      .orderBy(...order)
       .limit(1);
     if (inWindow) return inWindow;
     // Fallback: nearest active goal (most recent by createdAt) so the cascade
     // is still reachable even before today is inside any quarter window.
     const [fallback] = await db.select().from(ninetyDayGoals)
       .where(eq(ninetyDayGoals.active, true))
-      .orderBy(desc(ninetyDayGoals.createdAt))
+      .orderBy(...order)
       .limit(1);
     return fallback;
   }
@@ -228,7 +253,7 @@ export class DatabaseStorage implements IStorage {
       .orderBy(weeklyGoals.category, weeklyGoals.sortOrder);
   }
 
-  async createWeeklyGoals(weekStartDate: string, goals: { category: string; goalText: string; sortOrder: number; isTopFocus?: boolean }[]) {
+  async createWeeklyGoals(weekStartDate: string, goals: WeeklyGoalInput[]) {
     await db.delete(weeklyGoals).where(eq(weeklyGoals.weekStartDate, weekStartDate));
     if (goals.length > 0) {
       const current = await this.getCurrentNinetyDayGoal();
@@ -240,8 +265,11 @@ export class DatabaseStorage implements IStorage {
           goalText: g.goalText,
           sortOrder: g.sortOrder,
           completed: false,
-          ninetyDayGoalId,
+          ninetyDayGoalId: g.ninetyDayGoalId ?? ninetyDayGoalId,
           isTopFocus: g.isTopFocus ?? false,
+          weeklyGoalTemplateId: g.weeklyGoalTemplateId ?? null,
+          source: g.source ?? "manual",
+          habitId: g.habitId ?? null,
         }))
       );
     }
@@ -390,6 +418,10 @@ export class DatabaseStorage implements IStorage {
       .where(eq(yearwiseSessions.id, id))
       .returning();
     return row;
+  }
+
+  async commitYearwiseSession(id: number, answers: Answers) {
+    return commitYearwiseSession(db, id, answers);
   }
 }
 

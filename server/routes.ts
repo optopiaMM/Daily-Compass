@@ -190,6 +190,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 
+  // Commit to Daily Compass: saves the posted answers and writes tiers 1–3,
+  // habits, if–then plans and life check-ins in one transaction. Re-committing
+  // the same session updates the same records.
+  app.post("/api/yearwise-sessions/:id/commit", async (req, res) => {
+    try {
+      const parsed = z.object({ answers: z.record(z.unknown()) }).safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "answers must be an object" });
+      const result = await storage.commitYearwiseSession(parseInt(req.params.id), parsed.data.answers);
+      if (!result) return res.status(404).json({ message: "Session not found" });
+      res.json(result);
+    } catch (error: any) {
+      console.error("[yearwise] commit failed:", error?.message ?? error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Outlook OAuth ----------------------------------------------------------
   // Pass ?role=read_only to add a calendar that's just consulted for busy/free.
   // Without the flag, defaults to read_write if no read_write account exists

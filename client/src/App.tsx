@@ -6,11 +6,13 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import Home from "@/pages/home";
 import YearwisePage from "@/pages/yearwise";
 import YearwiseSessionPage from "@/pages/yearwise-session";
+import WeekPage from "@/pages/week";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/week/:weekStart" component={WeekPage} />
       <Route path="/yearwise" component={YearwisePage} />
       <Route path="/yearwise/:sessionId" component={YearwiseSessionPage} />
       <Route path="/yearwise/:sessionId/:step" component={YearwiseSessionPage} />

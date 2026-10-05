@@ -105,6 +105,8 @@ export const ninetyDayGoals = pgTable("ninety_day_goals", {
   // false = a balance goal that doesn't move the annual target.
   movesAnnual: boolean("moves_annual"),
   yearwiseSessionId: integer("yearwise_session_id").references(() => yearwiseSessions.id, { onDelete: "set null" }),
+  // Position within the Yearwise session ("g0"–"g2"), so re-committing updates this row.
+  yearwiseKey: text("yearwise_key"),
 });
 
 // 1–3 per 90-day goal. Kept separate from ninety_day_goals.failure_triggers,
@@ -127,6 +129,7 @@ export const habits = pgTable("habits", {
   pillar: text("pillar"),
   parent90DayGoalId: integer("parent_90day_goal_id").references(() => ninetyDayGoals.id, { onDelete: "set null" }),
   yearwiseSessionId: integer("yearwise_session_id").references(() => yearwiseSessions.id, { onDelete: "set null" }),
+  yearwiseKey: text("yearwise_key"), // "h0", "h1", … within the session
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -193,6 +196,7 @@ export const weeklyGoalTemplates = pgTable("weekly_goal_templates", {
   habitId: integer("habit_id").references(() => habits.id, { onDelete: "set null" }),
   ninetyDayGoalId: integer("ninety_day_goal_id").references(() => ninetyDayGoals.id, { onDelete: "set null" }),
   yearwiseSessionId: integer("yearwise_session_id").references(() => yearwiseSessions.id, { onDelete: "set null" }),
+  yearwiseKey: text("yearwise_key"), // "w1.plan.0", "w1.habit.2", "w2.review", … within the session
 });
 
 export const insertWeeklyGoalTemplateSchema = createInsertSchema(weeklyGoalTemplates, {

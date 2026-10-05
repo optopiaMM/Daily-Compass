@@ -8,6 +8,7 @@ import {
   useYearwise, Why, Note, Hint, Card, Tag, Grid, StepHeading, SubHead, TextField, AreaField, Field,
   SelectField, PillarSelect, TrackSelect, NumList, Chips, IfThenRow, LifeRating, ReflectionPanel,
 } from "./fields";
+import { Output } from "./output";
 
 export interface StepContent {
   eyebrow: string;
@@ -427,22 +428,6 @@ function Rhythm() {
         <SelectField path="tell.freq" label="How often will you update them?" options={[["fortnightly", "Fortnightly"], ["monthly", "Monthly"], ["quarterly", "At the 90-day mark"]]} />
       </Grid>
       <TextField path="firstStep" label="Your first small step, which you'll do today or tomorrow" placeholder="Something that takes under 15 minutes" />
-    </div>
-  );
-}
-
-/* ================= Output (built in the next stage) ================= */
-
-function Output() {
-  return (
-    <div className="space-y-4">
-      <Card>
-        <p>The readiness check, weekly-goal preview, exports and "Commit to Daily Compass" are the next build stage.</p>
-        <Hint>Your answers are saved to this session as you go, so nothing here needs doing yet.</Hint>
-      </Card>
-      <p className="border-l-4 border-success pl-4 font-serif text-lg italic">
-        Come back to this at the 90-day mark: re-score the ten life areas, run stop / continue / start again, and set the next three goals.
-      </p>
     </div>
   );
 }

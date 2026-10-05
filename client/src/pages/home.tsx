@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getTodayStr, isMonday } from "@/lib/dateUtils";
 import QuoteScreen from "@/components/quote-screen";
 import MorningSession from "@/components/morning-session";
@@ -15,9 +16,23 @@ export default function Home() {
     queryKey: ["/api/morning-session", today],
   });
 
+  // The app has no scheduler, so each load fills in this week's and next week's
+  // habit and review rows if they're missing (a no-op once they exist). Done before
+  // the morning session opens, so the weekly-goals step loads them.
+  const [ensured, setEnsured] = useState(false);
   useEffect(() => {
-    if (!isLoading && sessionStatus !== undefined) setAppState("quote");
-  }, [isLoading, sessionStatus]);
+    apiRequest("POST", "/api/recurring/ensure", { date: today })
+      .then((r) => r.json())
+      .then((r: { created: number }) => {
+        if (r.created > 0) queryClient.invalidateQueries({ queryKey: ["/api/weekly-goals"] });
+      })
+      .catch((err) => console.warn("[recurring] ensure failed:", err))
+      .finally(() => setEnsured(true));
+  }, [today]);
+
+  useEffect(() => {
+    if (!isLoading && sessionStatus !== undefined && ensured) setAppState("quote");
+  }, [isLoading, sessionStatus, ensured]);
 
   if (appState === "loading" || isLoading) {
     return (

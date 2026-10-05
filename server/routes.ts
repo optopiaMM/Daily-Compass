@@ -14,7 +14,11 @@ import {
 } from "./outlook";
 import { scheduleDayWithClaude, clearDailyCompassEventsForDay } from "./agent";
 import { runPayslipAgent } from "./payslip";
+import { z } from "zod";
+import { iso, planStart } from "@shared/yearwise";
+import { addDaysISO, mondayOf, reviewBody } from "@shared/weekly-review";
 
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
 
   app.get("/api/annual-target", async (_req, res) => {
@@ -150,6 +154,104 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       await syncWeeklyGoalTemplatesFromCsv();
       res.json({ success: true });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Yearwise ---------------------------------------------------------------
+  app.get("/api/yearwise-sessions", async (_req, res) => {
+    try {
+      res.json(await storage.getYearwiseSessions());
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.post("/api/yearwise-sessions", async (req, res) => {
+    try {
+      const kind = req.body?.kind === "quarterly" ? "quarterly" : "annual";
+      const created = await storage.createYearwiseSession({ kind, planStart: iso(planStart({})), answers: {} });
+      res.json(created);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.get("/api/yearwise-sessions/:id", async (req, res) => {
+    try {
+      const session = await storage.getYearwiseSession(parseInt(req.params.id));
+      if (!session) return res.status(404).json({ message: "Session not found" });
+      res.json(session);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Autosave: replaces the whole answers object and keeps plan_start in step with it.
+  app.patch("/api/yearwise-sessions/:id/answers", async (req, res) => {
+    try {
+      const parsed = z.object({ answers: z.record(z.unknown()) }).safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "answers must be an object" });
+      const { answers } = parsed.data;
+      const saved = await storage.saveYearwiseAnswers(parseInt(req.params.id), answers, iso(planStart(answers)));
+      if (!saved) return res.status(404).json({ message: "Session not found" });
+      res.json({ id: saved.id, planStart: saved.planStart, updatedAt: saved.updatedAt });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Commit to Daily Compass: saves the posted answers and writes tiers 1–3,
+  // habits, if–then plans and life check-ins in one transaction. Re-committing
+  // the same session updates the same records.
+  app.post("/api/yearwise-sessions/:id/commit", async (req, res) => {
+    try {
+      const parsed = z.object({ answers: z.record(z.unknown()) }).safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "answers must be an object" });
+      const result = await storage.commitYearwiseSession(parseInt(req.params.id), parsed.data.answers);
+      if (!result) return res.status(404).json({ message: "Session not found" });
+      res.json(result);
+    } catch (error: any) {
+      console.error("[yearwise] commit failed:", error?.message ?? error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Weekly review loop ----------------------------------------------------
+  app.get("/api/weekly-review/:weekStartDate", async (req, res) => {
+    try {
+      if (!isoDate.safeParse(req.params.weekStartDate).success) return res.status(400).json({ message: "Use YYYY-MM-DD" });
+      res.json(await storage.getWeeklyReview(mondayOf(req.params.weekStartDate)));
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Writes the checklist's completed flags back to the week's goals, saves the
+  // review with its per-goal notes and scores, adds next week's goals and marks
+  // the week's review goal done, in one transaction.
+  app.post("/api/weekly-review", async (req, res) => {
+    try {
+      const parsed = reviewBody.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid review" });
+      const input = { ...parsed.data, weekStartDate: mondayOf(parsed.data.weekStartDate) };
+      res.json(await storage.saveWeeklyReview(input));
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.get("/api/ninety-day-goals/trends/:date", async (req, res) => {
+    try {
+      if (!isoDate.safeParse(req.params.date).success) return res.status(400).json({ message: "Use YYYY-MM-DD" });
+      res.json(await storage.getGoalTrends(mondayOf(req.params.date)));
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.get("/api/fresh-start/:date", async (req, res) => {
+    try {
+      if (!isoDate.safeParse(req.params.date).success) return res.status(400).json({ message: "Use YYYY-MM-DD" });
+      res.json({ freshStart: await storage.isFreshStart(req.params.date) });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // No scheduler in the app, so the day view calls this on load: it fills in this
+  // week's and next week's habit and review rows if they're missing. Idempotent.
+  app.post("/api/recurring/ensure", async (req, res) => {
+    try {
+      const parsed = z.object({ date: isoDate }).safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Missing or invalid 'date'" });
+      const week = mondayOf(parsed.data.date);
+      const thisWeek = await storage.ensureRecurringRows(week);
+      const nextWeek = await storage.ensureRecurringRows(addDaysISO(week, 7));
+      res.json({ created: thisWeek.created + nextWeek.created });
     } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 

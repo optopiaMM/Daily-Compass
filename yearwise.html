@@ -1,0 +1,644 @@
+<title>Yearwise Workbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&display=swap">
+<style>
+:root{
+  --bg:#EEF1ED; --surface:#FFFFFF; --ink:#172521; --muted:#5A6A64; --line:#D3DCD7;
+  --accent:#1F6F5C; --accent-ink:#FFFFFF; --soft:#DCEBE4;
+  --stop:#B2493C; --cont:#1F6F5C; --startc:#B8701A; --warn:#9A5B00; --warnbg:#FBEFD9;
+  --display:"Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --write:"Newsreader", Georgia, "Times New Roman", serif;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0F1715; --surface:#16211E; --ink:#E4ECE8; --muted:#93A59E; --line:#2B3A35;
+    --accent:#5FC0A2; --accent-ink:#0B1411; --soft:#1B2F29;
+    --stop:#E0786A; --cont:#5FC0A2; --startc:#E3A652; --warn:#F0B35C; --warnbg:#2E2413;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0F1715; --surface:#16211E; --ink:#E4ECE8; --muted:#93A59E; --line:#2B3A35;
+  --accent:#5FC0A2; --accent-ink:#0B1411; --soft:#1B2F29;
+  --stop:#E0786A; --cont:#5FC0A2; --startc:#E3A652; --warn:#F0B35C; --warnbg:#2E2413;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--display);font-size:15px;line-height:1.5}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.app{display:grid;grid-template-columns:270px minmax(0,1fr);min-height:100vh}
+aside{border-right:1px solid var(--line);padding:28px 20px;position:sticky;top:env(safe-area-inset-top,0px);height:100vh;overflow:auto;display:flex;flex-direction:column;gap:20px}
+.brand{display:flex;flex-direction:column;gap:4px}
+.brand .name{font-weight:600;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.bigyear{font-weight:800;font-size:44px;line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.bigyear span{color:var(--accent)}
+.period{font-size:12.5px;color:var(--muted)}
+.status{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.status i{width:7px;height:7px;border-radius:50%;background:var(--muted);display:inline-block}
+.status[data-s="saved"] i{background:var(--accent)}
+.status[data-s="saving"] i{background:var(--startc)}
+.status[data-s="error"] i{background:var(--stop)}
+
+nav{display:flex;flex-direction:column;gap:14px}
+.navgroup{display:flex;flex-direction:column;gap:1px}
+.navgroup h3{margin:0 0 4px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600;display:flex;justify-content:space-between}
+.navgroup h3 em{font-style:normal;font-weight:400;letter-spacing:0;text-transform:none}
+.navbtn{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:0;padding:6px 8px;border-radius:8px;cursor:pointer;font-size:14px}
+.navbtn:hover{background:var(--soft)}
+.navbtn[aria-current="true"]{background:var(--soft);font-weight:600}
+.ring{flex:none;width:16px;height:16px;border-radius:50%;background:conic-gradient(var(--accent) calc(var(--p,0)*1turn), var(--line) 0);position:relative}
+.ring::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--bg)}
+.navbtn[aria-current="true"] .ring::after{background:var(--soft)}
+.ring.done{background:var(--accent)}
+.ring.done::after{inset:5px;background:var(--accent-ink)}
+
+main{padding-inline:clamp(16px,5vw,64px);padding-block:40px 80px;min-width:0}
+.sec{max-width:820px;display:flex;flex-direction:column;gap:26px}
+.eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600;display:flex;gap:12px;flex-wrap:wrap}
+.eyebrow .t{color:var(--muted);letter-spacing:.04em;text-transform:none;font-weight:400}
+.sec h1{margin:6px 0 0;font-weight:800;font-size:clamp(28px,4.2vw,42px);line-height:1.08;letter-spacing:-.02em;text-wrap:balance}
+.lede{margin:12px 0 0;color:var(--muted);font-size:16px;max-width:64ch}
+.why{font-size:13px;color:var(--muted);border:1px solid var(--line);border-radius:10px;padding:10px 12px;max-width:70ch;display:flex;gap:8px}
+.why b{color:var(--accent);flex:none;font-weight:600}
+.block{display:flex;flex-direction:column;gap:8px}
+.lbl{font-weight:600;font-size:15px}
+.hint{color:var(--muted);font-size:13.5px;margin-top:-4px}
+.sub{font-weight:600;font-size:13px;color:var(--muted)}
+
+input[type=text], input[type=date], input[type=number], textarea, select{width:100%;font-family:var(--write);font-size:18px;line-height:1.45;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:9px 13px}
+select, input[type=number], input[type=date]{font-family:var(--display);font-size:15px}
+textarea{min-height:88px;resize:vertical;field-sizing:content}
+input::placeholder, textarea::placeholder{color:var(--muted);opacity:.7;font-style:italic}
+input:focus, textarea:focus, select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--soft)}
+
+.numlist{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}
+.numlist li{display:grid;grid-template-columns:28px 1fr;align-items:center;gap:8px}
+.numlist .n{font-variant-numeric:tabular-nums;color:var(--muted);font-weight:600;text-align:right}
+
+.months{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+.month{display:flex;flex-direction:column;gap:6px}
+.month h4{margin:0;font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.month input{font-size:16px;padding:7px 10px}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px}
+.card input[type=text], .card textarea, .card select, .card input[type=number], .card input[type=date]{background:var(--bg)}
+.cardhead{display:flex;align-items:center;gap:10px;font-weight:600;flex-wrap:wrap}
+.tag{font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;padding:3px 8px;border-radius:99px;border:1px solid currentColor}
+.tag.high{color:var(--cont)} .tag.low{color:var(--stop)} .tag.opt{color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px dashed var(--line);background:none;border-radius:99px;padding:4px 10px;font-size:13px;cursor:pointer;color:var(--muted);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip:hover{border-color:var(--accent);color:var(--ink)}
+.chip[aria-pressed="true"]{border-style:solid;border-color:var(--accent);background:var(--soft);color:var(--ink)}
+
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.grid4{display:grid;grid-template-columns:2fr 1.3fr 1fr 1fr;gap:12px}
+.fl{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--muted);font-weight:600;min-width:0}
+.fl textarea{font-size:16px;min-height:96px}
+.ifthen{display:grid;grid-template-columns:auto 1fr auto 1fr;gap:8px;align-items:center}
+.ifthen b{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+
+.rating{display:grid;grid-template-columns:170px 1fr;gap:10px 18px;padding-block:16px;border-top:1px solid var(--line)}
+.rating .area{font-weight:600;font-size:16px;padding-top:4px}
+.rating .area small{display:block;font-weight:400;color:var(--muted);font-size:12.5px;line-height:1.35;margin-top:2px}
+.scale{display:flex;flex-direction:column;gap:8px}
+.dots{display:grid;grid-template-columns:repeat(10,1fr);gap:4px;max-width:460px}
+.dot{aspect-ratio:1;min-width:0;border:1px solid var(--line);background:var(--surface);border-radius:8px;cursor:pointer;font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;color:var(--muted);padding:0}
+.dot:hover{border-color:var(--accent)}
+.dot.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.dot.fill{background:var(--soft);border-color:var(--soft);color:var(--ink)}
+.ends{max-width:460px;display:flex;justify-content:space-between;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.rating textarea{min-height:56px;font-size:16px}
+.rating input[type=text]{font-size:16px}
+
+.triad{border-left:4px solid var(--c)}
+.triad .lead{font-weight:800;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--c)}
+.triad .what{font-size:20px}
+
+.step{display:grid;grid-template-columns:44px 1fr;gap:14px;padding-top:6px}
+.stepn{width:40px;height:40px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-weight:800;font-size:18px}
+.step h2{margin:6px 0 2px;font-size:21px;font-weight:600;letter-spacing:-.01em}
+.step p{margin:0;color:var(--muted);font-size:14px;max-width:62ch}
+
+.reflect{border:1px solid var(--line);border-radius:14px;background:var(--surface);padding:14px 16px}
+.reflect summary{cursor:pointer;font-weight:600}
+.rgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:10px;font-size:14px}
+.rgrid h4{margin:10px 0 4px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.rgrid h4:first-child{margin-top:0}
+.rgrid ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:3px}
+.rgrid p{margin:0}
+@media (max-width:860px){.rgrid{grid-template-columns:1fr}}
+.note{background:var(--warnbg);color:var(--warn);border-radius:10px;padding:10px 12px;font-size:14px}
+.tips{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.tip{border-top:2px solid var(--accent);padding-top:12px}
+.tip b{display:block;margin-bottom:4px}
+.tip span{color:var(--muted);font-size:14px}
+.map{width:100%;border-collapse:collapse;font-size:14px}
+.map td,.map th{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+.map th{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.dates{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.dates div{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.dates small{display:block;color:var(--muted);font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+.dates b{font-variant-numeric:tabular-nums}
+
+.weekhead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;border-bottom:2px solid var(--ink);padding-bottom:6px}
+.weekhead h2{margin:0;font-size:22px}
+.weekhead span{color:var(--muted);font-variant-numeric:tabular-nums}
+.addrow{align-self:flex-start;border:1px dashed var(--accent);color:var(--accent);background:none;border-radius:99px;padding:7px 14px;cursor:pointer;font-weight:600}
+
+.checks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.checks li{display:grid;grid-template-columns:22px 1fr;gap:8px;align-items:start;font-size:14.5px}
+.checks .ok{color:var(--accent);font-weight:800}
+.checks .no{color:var(--warn);font-weight:800}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.csv{border-collapse:collapse;font-size:12.5px;min-width:900px;width:100%}
+.csv th,.csv td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+.csv th{font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:600;color:var(--muted);font-size:11.5px}
+.csv td{font-variant-numeric:tabular-nums}
+.actions{display:flex;flex-wrap:wrap;gap:10px}
+.raw{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;min-height:160px;white-space:pre}
+.toast{font-size:13px;color:var(--accent);min-height:1.2em}
+
+.pull{font-family:var(--write);font-style:italic;font-size:21px;line-height:1.35;max-width:44ch;border-left:3px solid var(--accent);padding-left:16px;margin:0}
+.pager{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:22px;margin-top:6px}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:99px;padding:10px 18px;cursor:pointer;font-weight:600}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn:hover{border-color:var(--accent)}
+
+@media (max-width:860px){
+  .app{grid-template-columns:1fr}
+  aside{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);padding:18px 16px 12px;gap:12px}
+  .brand{flex-direction:row;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+  .bigyear{font-size:30px}
+  nav{flex-direction:row;overflow-x:auto;gap:4px;padding-bottom:6px}
+  .navgroup{flex-direction:row;gap:4px}
+  .navgroup h3{display:none}
+  .navbtn{white-space:nowrap;width:auto;border:1px solid var(--line)}
+  main{padding-block:28px 60px}
+  .grid2,.grid3,.grid4{grid-template-columns:1fr}
+  .rating{grid-template-columns:1fr}
+  .ifthen{grid-template-columns:auto 1fr}
+  .dot{border-radius:6px;font-size:12px}
+}
+@media (prefers-reduced-motion:no-preference){
+  .sec{animation:rise .25s ease-out}
+  @keyframes rise{from{transform:translateY(6px)}to{transform:none}}
+}
+</style>
+
+<div class="app">
+  <aside>
+    <div class="brand">
+      <div class="name">Yearwise</div>
+      <div class="bigyear" id="bigyear">2026<span>→</span>27</div>
+      <div class="period" id="period"></div>
+      <div class="status" id="status" data-s="idle"><i></i><span>Not saved yet</span></div>
+    </div>
+    <nav id="nav" aria-label="Workbook sections"></nav>
+  </aside>
+  <main id="main"></main>
+</div>
+
+<script>
+(function(){
+/* ================= constants ================= */
+const PILLARS=[
+ ["Profit","Revenue, BD, commercial activity"],
+ ["Promise","Brand, thought leadership, delivery quality"],
+ ["Personal","Health, wellbeing, personal admin"],
+ ["People","Relationships, family, network"],
+ ["Personal Development and Learning","Skills, reading, courses"],
+ ["Physical Environment","Home, office, systems"]];
+const AREAS=[["health","Health"],["work","Work"],["money","Money"],["love","Love life"],["friends","Friendships"],["happiness","Happiness"],["fun","Fun"],["spirit","Spirituality"],["meaning","Meaning & purpose"],["selflove","Self-love"]];
+const PKEY=p=>p.toLowerCase().replace(/[^a-z]+/g,"_");
+const TRACKS=["IBM/Nuvantiq","QASR","Agilia","CUSP","SE Water"];
+const FREQ=[["daily","Every day",7,"every day"],["weekdays","Weekdays",5,"weekdays"],["4pw","4× a week",4,"4× a week"],["3pw","3× a week",3,"3× a week"],["2pw","2× a week",2,"2× a week"],["weekly","Once a week",1,"weekly"],["2pm","2× a month",0.5,"2× a month"],["monthly","Once a month",0.25,"monthly"],["asneeded","When needed (a replacement, not scheduled)",0,"when needed, unscheduled"],["rule","A rule for every day (no time block)",0,"daily rule, no time block"]];
+const DEST=[["annual","Annual target"],["ninety","A 90-day goal"],["habit","A habit"],["week","A weekly goal"],["later","Not this year"]];
+const CSV_COLS=["week_start_date","pillar","track","goal_title","goal_description","priority","time_estimate_mins","parent_90day_goal","status","notes"];
+const MONTHN=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const MONTHF=["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+/* ================= state & helpers ================= */
+let state={}, current="welcome", remote=null;
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const filled=v=>v!==undefined&&v!==null&&String(v).trim()!=="";
+function getP(o,p){return p.split(".").reduce((a,k)=>a==null?undefined:a[k],o)}
+function setP(o,p,v){const ks=p.split(".");let a=o;ks.slice(0,-1).forEach(k=>{if(typeof a[k]!=="object"||a[k]===null)a[k]={};a=a[k]});a[ks[ks.length-1]]=v}
+const V=p=>{const v=getP(state,p);return filled(v)?String(v).trim():""};
+const fid=p=>"f-"+p.replace(/\./g,"-");
+
+/* dates */
+function iso(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
+function parseISO(s){const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s||"");return m?new Date(+m[1],+m[2]-1,+m[3]):null}
+function nextMonday(){const d=new Date();d.setHours(0,0,0,0);const add=(8-d.getDay())%7;d.setDate(d.getDate()+(add===0&&d.getDay()!==1?7:add));return d}
+function planStart(){const d=parseISO(V("planStart"));if(!d)return nextMonday();const w=d.getDay();if(w!==1){d.setDate(d.getDate()-((w+6)%7))}return d}
+function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x}
+function fmt(d){return d.getDate()+" "+MONTHN[d.getMonth()]+" "+d.getFullYear()}
+function reviewMonths(){const s=planStart();const out=[];for(let i=11;i>=0;i--){const d=new Date(s.getFullYear(),s.getMonth()-i,1);out.push({key:d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"),label:MONTHF[d.getMonth()]+" "+d.getFullYear()})}return out}
+function dates(){const s=planStart();const m=reviewMonths();return{start:s,w1:s,w2:addDays(s,7),q:addDays(s,90),yearEnd:new Date(s.getFullYear()+1,s.getMonth(),s.getDate()-1),revFrom:m[0].label,revTo:m[11].label,endLabel:MONTHF[(s.getMonth()+11)%12]+" "+(s.getFullYear()+1)}}
+
+/* ================= field renderers (collect paths for progress) ================= */
+let COL=null;
+const reg=(p,opt)=>{if(COL&&!opt)COL.push(p)};
+function text(p,label,o={}){reg(p,o.opt);return `<div class="block">${label?`<label class="lbl" for="${fid(p)}">${esc(label)}</label>`:""}${o.hint?`<div class="hint">${esc(o.hint)}</div>`:""}<input type="text" id="${fid(p)}" data-p="${p}" ${o.ph?`placeholder="${esc(o.ph)}"`:""} ${!label&&o.aria?`aria-label="${esc(o.aria)}"`:""} ${o.cls?`class="${o.cls}"`:""}></div>`}
+function area(p,label,o={}){reg(p,o.opt);return `<div class="block"><label class="lbl" for="${fid(p)}">${esc(label)}</label>${o.hint?`<div class="hint">${esc(o.hint)}</div>`:""}<textarea id="${fid(p)}" data-p="${p}" ${o.ph?`placeholder="${esc(o.ph)}"`:""}></textarea></div>`}
+function fl(p,label,kind="area",o={}){reg(p,o.opt);
+  if(kind==="area")return `<label class="fl">${esc(label)}<textarea id="${fid(p)}" data-p="${p}" ${o.ph?`placeholder="${esc(o.ph)}"`:""}></textarea></label>`;
+  if(kind==="text")return `<label class="fl">${esc(label)}<input type="text" id="${fid(p)}" data-p="${p}" ${o.ph?`placeholder="${esc(o.ph)}"`:""}></label>`;
+  if(kind==="num")return `<label class="fl">${esc(label)}<input type="number" min="0" step="5" inputmode="numeric" id="${fid(p)}" data-p="${p}" ${o.ph?`placeholder="${esc(o.ph)}"`:""}></label>`;
+  if(kind==="date")return `<label class="fl">${esc(label)}<input type="date" id="${fid(p)}" data-p="${p}"></label>`;
+}
+function sel(p,label,options,o={}){reg(p,o.opt);
+  const opts=`<option value="">${esc(o.blank||"Choose…")}</option>`+options.map(x=>{const [v,l]=Array.isArray(x)?x:[x,x];return `<option value="${esc(v)}">${esc(l)}</option>`}).join("");
+  return `<label class="fl">${esc(label)}<select id="${fid(p)}" data-p="${p}">${opts}</select></label>`}
+const pillarSel=(p,label="Pillar",o)=>sel(p,label,PILLARS.map(x=>x[0]),o);
+const trackSel=(p,o={})=>`<div class="fl" style="gap:6px">${sel(p,"BD track",TRACKS.concat([["other","Other…"]]),Object.assign({blank:"None",opt:true},o))}<input type="text" id="${fid(p+"Other")}" data-p="${p}Other" data-show-if="${p}=other" hidden placeholder="Which track?" aria-label="Other BD track"></div>`;
+const trackVal=p=>V(p)==="other"?V(p+"Other"):V(p);
+const chips=(src,target)=>`<div class="chips" data-src="${src}" data-target="${target}"></div>`;
+function list(p,n,label,o={}){for(let i=0;i<Math.min(n,o.count||n);i++)reg(p+"."+i);
+  return `<div class="block"><div class="lbl">${esc(label)}</div>${o.hint?`<div class="hint">${esc(o.hint)}</div>`:""}<ol class="numlist">`+
+  Array.from({length:n},(_,i)=>`<li><span class="n">${i+1}</span><input type="text" id="${fid(p+"."+i)}" data-p="${p}.${i}" ${i===0&&o.ph?`placeholder="${esc(o.ph)}"`:""} aria-label="${esc(label)} ${i+1}"></li>`).join("")+`</ol></div>`}
+const step=(n,t,h)=>`<div class="step"><div class="stepn">${n}</div><div><h2>${esc(t)}</h2>${h?`<p>${esc(h)}</p>`:""}</div></div>`;
+const why=t=>`<div class="why"><b>Why</b><span>${esc(t)}</span></div>`;
+function count(p,def){const n=+getP(state,p+".n");return n>0?n:def}
+function ninetyTitles(){return [0,1,2].map(i=>V("ninety."+i+".title")).filter(Boolean)}
+function ninetyOpts(){return [0,1,2].map(i=>V("ninety."+i+".title")?["g"+i,V("ninety."+i+".title")]:null).filter(Boolean)}
+function parentTitle(v){const m=/^g([0-2])$/.exec(v||"");return m?V("ninety."+m[1]+".title"):(v||"")}
+function migrate(){const map={};[0,1,2].forEach(i=>{const t=V("ninety."+i+".title");if(t)map[t]="g"+i});
+  const fix=p=>{const v=V(p);if(v&&map[v])setP(state,p,map[v])};
+  for(let i=0;i<count("habits",3);i++)fix("habits."+i+".parent");
+  ["w1","w2"].forEach(w=>{for(let i=0;i<count("weeks."+w,3);i++)fix("weeks."+w+"."+i+".parent")})}
+const WEAK_IF=/^\s*(i\s+(want|need|would like|wish|should)|i'?d like)\b/i, WEAK_THEN=/^\s*i\s+(need|have|should|must|ought)\s+to\b|^\s*i\s+(need|should|must)\b|^\s*(i am|i'm|it will|it'll|that will|that's)\b/i;
+function ifIssue(p,k){const a=V(p+".if"+k),b=V(p+".then"+k);if(!a&&!b)return "";
+  if(a&&WEAK_IF.test(a))return "The 'if' is a wish, not a moment. Name when the obstacle shows up: a time, a place, a feeling or a thought.";
+  if(b&&WEAK_THEN.test(b))return "The 'then' is an intention or a consequence, not an action. Name one thing you'll physically do right then.";
+  if(a&&!b)return "Add the 'then': one specific action.";return ""}
+function reflectPanel(){const low=AREAS.map(([k,n])=>({n,s:+V("life."+k+".score"),p:V("life."+k+".plus2")})).filter(x=>x.s&&x.s<=5).sort((a,b)=>a.s-b.s);
+  const best=[0,1,2].map(i=>V("bestThree."+i)).filter(Boolean);
+  const starts=[0,1,2].map(i=>V("start."+i+".what")).filter(Boolean);
+  if(!low.length&&!best.length&&!V("highThreads")&&!V("lowNeed"))return "";
+  return `<details class="reflect" open><summary>Your reflection, to check these goals against</summary><div class="rgrid">
+   ${low.length?`<div><h4>Lowest scores and your +2</h4><ul>${low.map(x=>`<li><b>${esc(x.n)} ${x.s}/10</b>${x.p?" · "+esc(x.p):""}</li>`).join("")}</ul></div>`:""}
+   <div>${best.length?`<h4>What matters most in your best year</h4><ul>${best.map(t=>`<li>${esc(t)}</li>`).join("")}</ul>`:""}
+   ${V("highThreads")?`<h4>Your best moments had in common</h4><p>${esc(V("highThreads"))}</p>`:""}
+   ${V("lowNeed")?`<h4>What you needed in the lows</h4><p>${esc(V("lowNeed"))}</p>`:""}
+   ${starts.length?`<h4>Your starts</h4><ul>${starts.map(t=>`<li>${esc(t)}</li>`).join("")}</ul>`:""}</div></div></details>`}
+function ifRow(p,k,o){const q=p+".if"+k,r=p+".then"+k;if(!o){reg(q);reg(r)}
+  return `<div class="ifthen"><b>If</b><input type="text" id="${fid(q)}" data-p="${q}" aria-label="If (plan ${k})" placeholder="${k===1?"I notice I'm putting off a call":"it's 3pm and I haven't…"}"><b>then</b><input type="text" id="${fid(r)}" data-p="${r}" aria-label="Then (plan ${k})" placeholder="${k===1?"I dial within 5 minutes":"I…"}"></div><div class="note" data-ifcheck="${p}|${k}" hidden></div>`}
+
+/* ================= sections ================= */
+const SECTIONS=[
+{id:"welcome",group:"Begin",nav:"Before you start",intro:true,body(){const d=dates();reg("planStart");
+ return `<div><div class="eyebrow">Your year, on purpose</div>
+ <h1>Look back, choose a direction, then hand it to Daily Compass.</h1>
+ <p class="lede">About two hours, best done in three sittings. Part 1 looks back at the last twelve months. Part 2 decides what to stop, keep and start. Part 3 turns it into an annual target, up to three 90-day goals, habits and your first two weeks, exported as Daily Compass weekly-goal rows.</p></div>
+ <div class="grid2"><div>${fl("planStart","When does the plan start? (a Monday)","date")}</div>
+  <div class="hint" style="align-self:end;margin:0 0 10px">Leave blank to use next Monday. Every date in the export is worked out from this.</div></div>
+ <div class="dates">
+  <div><small>Looking back</small><b>${d.revFrom} – ${d.revTo}</b></div>
+  <div><small>Week 1 starts</small><b>${fmt(d.w1)}</b></div>
+  <div><small>First 90 days end</small><b>${fmt(d.q)}</b></div>
+  <div><small>Annual target by</small><b>${fmt(d.yearEnd)}</b></div></div>
+ <div class="tips">
+  <div class="tip"><b>Part 1 · ~45 min</b><span>Photos and calendar open. Rough notes are fine.</span></div>
+  <div class="tip"><b>Part 2 · ~30 min</b><span>Stop, continue, start. Every stop gets a replacement.</span></div>
+  <div class="tip"><b>Part 3 · ~45 min</b><span>Targets, if–then plans, habits and two weeks of goals.</span></div></div>
+ <div class="block"><div class="lbl">What ends up in Daily Compass</div>
+ <div class="tablewrap"><table class="map"><tr><th>Yearwise</th><th>Daily Compass</th></tr>
+  <tr><td>Life check-in (10 areas)</td><td>Shows where a goal or habit is needed; goals are then tagged with your 6 P's</td></tr>
+  <tr><td>Annual target</td><td>Annual target (tier 1)</td></tr>
+  <tr><td>90-day goals + if–then plans</td><td>90-day goals (tier 2)</td></tr>
+  <tr><td>Habits, weekly review, first two weeks</td><td>Weekly goals CSV (tier 3), in your template's columns</td></tr></table></div></div>`}},
+
+{id:"months",group:"Part 1 · Look back",nav:"Month by month",eyebrow:"Warm-up",time:"10 min",title:"Scroll back through the last twelve months",
+ lede:"Go through your photos and calendar month by month. Note the big moments, the hard ones and the small ordinary ones. You are just collecting, not judging.",
+ body(){return `<div class="months">`+reviewMonths().map(m=>`<div class="month"><h4>${m.label}</h4>`+[0,1].map(i=>{const p="months."+m.key+"."+i;return `<input type="text" id="${fid(p)}" data-p="${p}" aria-label="${m.label} moment ${i+1}">`}).join("")+`</div>`).join("")+`</div>`},
+ progress(){const ms=reviewMonths();return ms.filter(m=>V("months."+m.key+".0")||V("months."+m.key+".1")).length/12}},
+
+{id:"lows",group:"Part 1 · Look back",nav:"Low points",eyebrow:"Question 1",time:"8 min",title:"What were the low points?",
+ lede:"Write them down plainly. Naming what knocked you down is where changing it starts.",
+ body(){return list("lows",5,"The low points that stand out",{count:3,ph:"e.g. The bid that went quiet for six weeks"})+area("lowNeed","What did you need most in those moments?",{ph:"Rest, help, a clearer boundary, someone to think it through with…"})}},
+
+{id:"highs",group:"Part 1 · Look back",nav:"High points",eyebrow:"Question 2",time:"8 min",title:"What were the high points?",
+ lede:"Which days would you happily live again?",
+ body(){return list("highs",5,"The high points that stand out",{count:3,ph:"e.g. Selected for the AM1207 PM role"})+area("highThreads","What did your best moments have in common?",{ph:"Who was there, what kind of work, how you felt…"})}},
+
+{id:"lessons",group:"Part 1 · Look back",nav:"Lessons",eyebrow:"Question 3",time:"10 min",title:"What did the year teach you about yourself?",
+ lede:"Take three highs and three lows and name the lesson in each.",
+ body(){let h=why("Writing about setbacks self-compassionately makes people more motivated to improve than self-criticism does (Breines & Chen, 2012). The friend question is there for that.");
+  for(let i=0;i<3;i++){const p="lessonsHigh."+i;h+=`<div class="card"><div class="cardhead"><span class="tag high">High ${i+1}</span></div>${text(p+".point","",{aria:"High point "+(i+1),ph:"Tap one from your list or type it"})}${chips("highs",p+".point")}${area(p+".learned","What it taught me about myself")}</div>`}
+  for(let i=0;i<3;i++){const p="lessonsLow."+i;h+=`<div class="card"><div class="cardhead"><span class="tag low">Low ${i+1}</span></div>${text(p+".point","",{aria:"Low point "+(i+1),ph:"Tap one from your list or type it"})}${chips("lows",p+".point")}${area(p+".friend","What would you say to a friend who went through this?",{opt:true})}${area(p+".learned","What it taught me about myself")}</div>`}
+  return h}},
+
+{id:"checkin",group:"Part 1 · Look back",nav:"Life check-in",eyebrow:"Check-in",time:"12 min",title:"Where does each part of your life stand right now?",
+ lede:"Score each area from 1 to 10 on gut feel. Say why, then describe what two points better would look like by next year. Low scores tell you where a goal or habit is needed.",
+ body(){const legacy=PILLARS.map(([n])=>[n,V("ratings."+PKEY(n)+".score")]).filter(x=>x[1]);
+  return (legacy.length?`<div class="why"><b>Kept</b><span>Your earlier 6 P's scores are saved and included in the export: ${legacy.map(x=>esc(x[0])+" "+x[1]).join(", ")}.</span></div>`:"")+
+  AREAS.map(([k,n])=>{const p="life."+k;reg(p+".score");reg(p+".why");reg(p+".plus2",true);
+  return `<div class="rating"><div class="area">${esc(n)}</div><div class="scale">
+   <div class="dots" role="radiogroup" aria-label="${esc(n)} score">`+Array.from({length:10},(_,i)=>`<button type="button" class="dot" role="radio" aria-checked="false" data-rate="${p}.score" data-v="${i+1}" aria-label="${i+1} out of 10">${i+1}</button>`).join("")+`</div>
+   <div class="ends"><span>Struggling</span><span>Thriving</span></div>
+   <textarea id="${fid(p+".why")}" data-p="${p}.why" placeholder="Why this number?" aria-label="Why, for ${esc(n)}"></textarea>
+   <input type="text" id="${fid(p+".plus2")}" data-p="${p}.plus2" placeholder="+2 by ${esc(dates().endLabel)} would look like…" aria-label="What +2 would look like for ${esc(n)}"></div></div>`}).join("")}},
+
+{id:"future",group:"Part 2 · Choose direction",nav:"Best possible year",eyebrow:"Imagine",time:"8 min",title:"It's a year from now and it went well",
+ lede:"Picture an ordinary week at the end of the year ahead, after things went as well as they realistically could. Write it in the present tense.",
+ body(){return why("Writing about your best possible self reliably lifts optimism (Carrillo et al., 2019), and gives you material for your Starts.")+
+  area("bestSelf",`It's ${dates().endLabel}. What does a normal week look like?`,{ph:"Monday I'm… The work I'm doing is… At home…"})+
+  list("bestThree",3,"The three things in that picture that matter most")}},
+
+{id:"stop",group:"Part 2 · Choose direction",nav:"Stop",eyebrow:"Question 4",time:"8 min",title:"What will you stop doing?",
+ lede:"Drop what no longer serves you. Quit because it doesn't fit your values, not because you're scared of it. Every stop needs something to do instead.",
+ body(){let h=why("Goals framed as doing something succeeded 59% of the time against 47% for goals framed as avoiding something (Oscarsson et al., 2020). The 'Instead' line turns each stop into a do-goal, and it can become a habit in Part 3.");
+  for(let i=0;i<3;i++){const p="stop."+i,o=i>0;h+=`<div class="card triad" style="--c:var(--stop)"><div class="lead">I will stop…${o?' <span class="tag opt">optional</span>':""}</div>${text(p+".what","",{aria:"Stop "+(i+1),cls:"what",ph:i===0?"e.g. Checking email before 9am":"",opt:o})}
+   <div class="grid2">${fl(p+".why","Why does this need to stop?","area",{opt:o})}${fl(p+".cost","What has it cost you so far?","area",{opt:o})}</div>
+   ${text(p+".instead","Instead, I will…",{ph:"e.g. Do one hour of deep work first thing",opt:o})}</div>`}
+  return h}},
+
+{id:"cont",group:"Part 2 · Choose direction",nav:"Continue",eyebrow:"Question 5",time:"6 min",title:"What will you keep doing?",
+ lede:"You're not starting from scratch. Carry forward the habits, people and choices that are already working.",
+ body(){let h="";for(let i=0;i<3;i++){const p="cont."+i,o=i>0;h+=`<div class="card triad" style="--c:var(--cont)"><div class="lead">I will continue…${o?' <span class="tag opt">optional</span>':""}</div>${text(p+".what","",{aria:"Continue "+(i+1),cls:"what",ph:i===0?"e.g. Riding three mornings a week":"",opt:o})}
+   <div class="grid2">${fl(p+".proof","What shows this is working?","area",{opt:o})}${fl(p+".keep","One simple way to keep it going","area",{opt:o})}</div></div>`}return h}},
+
+{id:"start",group:"Part 2 · Choose direction",nav:"Start",eyebrow:"Question 6",time:"10 min",title:"What will you start doing?",
+ lede:"Something new brings energy. Use your low-scoring life areas and your best-possible-year picture for ideas.",
+ body(){let h=why("Goals you pursue because they matter to you make more progress than ones driven by 'should' (Koestner et al., 2008). Be honest in the motive box; it matters more than the wording of the goal.");
+  for(let i=0;i<3;i++){const p="start."+i,o=i>0;h+=`<div class="card triad" style="--c:var(--startc)"><div class="lead">I will start…${o?' <span class="tag opt">optional</span>':""}</div>${text(p+".what","",{aria:"Start "+(i+1),cls:"what",ph:i===0?"e.g. Publishing one LinkedIn article a month":"",opt:o})}
+   <div class="grid2">${fl(p+".why","Why do you want to start this?","area",{opt:o})}${fl(p+".adds","What will it add to your life?","area",{opt:o})}</div>
+   <div class="grid2">${pillarSel(p+".pillar","Pillar",{opt:o})}${sel(p+".motive","Mostly because…",[["want","I want to / it matters to me"],["mixed","A bit of both"],["should","I feel I should / others expect it"]],{opt:o})}</div>
+   <div class="note" data-show-if="${p}.motive=should" hidden>Mostly "should". Consider whether a different start would pull you more; these tend to stall.</div>
+   <div class="grid2">${sel(p+".dest","Where will this go in the plan?",DEST,{opt:o})}</div></div>`}
+  return h}},
+
+{id:"annual",group:"Part 3 · Commit",nav:"Annual target",eyebrow:"Tier 1",time:"10 min",title:"Pick one annual target",
+ lede:"Turn one start into the single outcome the year is for. You can have other goals, but this one gets first claim on your time.",
+ body(){const d=dates();return reflectPanel()+step(1,"Choose what the year is for","The annual target should be the outcome that would change your lowest scores most. It can come from a start, or from your best-year picture. Something small you'll do every month is a habit, not an annual target.")+
+  `<div class="block">${chips("annualsrc","annual.title")}</div>`+text("annual.title","My annual target",{ph:"Short title, as it will appear in Daily Compass"})+
+  step(2,"Make it an outcome","A goal is an outcome that wouldn't happen unless you did something about it.")+
+  area("annual.outcome",`By ${fmt(d.yearEnd)}, what will be true?`)+
+  text("annual.measure","How you'll measure it",{hint:"A number or a clear yes/no by a date. Vague targets can't be tracked.",ph:"e.g. 4 advisory clients on retainer, £X monthly recurring"})+
+  `<div class="grid2">${pillarSel("annual.pillar")}${sel("annual.motive","Mostly because…",[["want","I want to / it matters to me"],["mixed","A bit of both"],["should","I feel I should / others expect it"]])}</div>
+  <div class="note" data-show-if="annual.motive=should" hidden>A "should" target is a warning sign. Is there a version of this you want for its own sake?</div>`+
+  step(3,"Check it fits your real life","Time, energy, boundaries, support.")+
+  area("annual.needs","What I need in place to succeed")}},
+
+{id:"ninety",group:"Part 3 · Commit",nav:"90-day goals",eyebrow:"Tier 2",time:"15 min",title:"Set up to three 90-day goals",
+ lede:"",body(){const d=dates();let h=`<p class="lede" style="margin-top:-14px">For ${fmt(d.start)} to ${fmt(d.q)}. At least one should move the annual target. Three is the ceiling; fewer is fine.</p>`+
+  why("Mental contrasting with if–then plans (WOOP: wish, outcome, obstacle, plan) has a reliable effect on goal attainment, g ≈ 0.34 across 21 studies (Wang et al., 2021). The order matters: picture the outcome, then the obstacle inside you, then the plan.")+reflectPanel();
+  for(let i=0;i<3;i++){const p="ninety."+i,o=i>0;h+=`<div class="card"><div class="cardhead"><span class="tag high">90-day goal ${i+1}</span>${o?'<span class="tag opt">optional</span>':""}</div>
+   ${chips("ninetysrc",p+".title")}${text(p+".title","",{aria:"90-day goal "+(i+1)+" title",cls:"what",ph:i===0?"Short title, as it will appear in Daily Compass":"",opt:o})}
+   <div class="grid3">${pillarSel(p+".pillar","Pillar",{opt:o})}${trackSel(p+".track")}${sel(p+".annual","Moves the annual target?",[["yes","Yes"],["no","No, it's a balance goal"]],{opt:o})}</div>
+   ${fl(p+".done",`Done by ${fmt(d.q)} means…`,"text",{ph:"Include a number or a yes/no, e.g. signed PO for 2 days a week",opt:o})}
+   <div class="sub">WOOP</div>
+   <div class="grid2">${fl(p+".outcome","Best outcome: what changes if you pull this off?","area",{opt:o})}${fl(p+".obstacle","Main obstacle in you: a habit, feeling or belief","area",{opt:o,ph:"e.g. I let client work eat the mornings"})}</div>
+   <div class="sub">If–then plans</div>
+   <div class="hint" style="margin-top:0"><b>If</b> = the moment your obstacle shows up: a time, a place, a feeling or a thought. <b>Then</b> = one action you can take right then. Not "if I want X, then I need to Y", but "if I catch myself putting off the email, then I send it before lunch".</div>
+   ${ifRow(p,1,o)}${ifRow(p,2,true)}${ifRow(p,3,true)}</div>`}
+  return h}},
+
+{id:"habits",group:"Part 3 · Commit",nav:"Habits",eyebrow:"Recurring",time:"8 min",title:"Turn stops and keeps into habits",
+ lede:"Pick the replacements, keeps and starts that should happen on repeat. Give each a fixed time and place. Replacements you use only when tempted can be set to \"When needed\" so they don't count as planned time.",
+ body(){let h=why("Habits take a median of about two months to form, and much longer for some people. A consistent time and place, and doing them in the morning, speeds that up (Singh et al., 2024).");
+  h+=reflectPanel();const n=count("habits",3);
+  for(let i=0;i<n;i++){const p="habits."+i,o=i>0;h+=`<div class="card"><div class="cardhead"><span class="tag high">Habit ${i+1}</span></div>
+   ${chips("habitsrc",p+".what")}${text(p+".what","",{aria:"Habit "+(i+1),cls:"what",opt:o,ph:"Tap a suggestion above, or type one"})}
+   ${fl(p+".cue","When and where exactly?","text",{ph:"After my first coffee, at my desk",opt:o})}
+   <div class="grid4">${sel(p+".freq","How often",FREQ.map(f=>[f[0],f[1]]),{opt:o})}${pillarSel(p+".pillar","Pillar",{opt:o})}${fl(p+".mins","Mins each time","num",{opt:o,ph:"30"})}${sel(p+".parent","Supports",ninetyOpts(),{blank:"No 90-day goal",opt:true})}</div></div>`}
+  return h+`<button type="button" class="addrow" data-add="habits" data-def="3">+ Add a habit</button>`}},
+
+{id:"weeks",group:"Part 3 · Commit",nav:"First two weeks",eyebrow:"Tier 3",time:"12 min",title:"Plan your first two weeks",
+ lede:"Break the 90-day goals into dated weekly goals. Put your very first small step in week 1. Priority 1 is must-do, 3 is nice to have.",
+ body(){const d=dates();let h="";
+  [["w1",d.w1,3],["w2",d.w2,2]].forEach(([w,date,def],wi)=>{const n=count("weeks."+w,def);
+   h+=`<div class="weekhead"><h2>Week ${wi+1}</h2><span>w/c ${fmt(date)}</span></div>`;
+   for(let i=0;i<n;i++){const p="weeks."+w+"."+i,o=!(wi===0&&i===0);h+=`<div class="card">
+    ${text(p+".title","",{aria:`Week ${wi+1} goal ${i+1}`,cls:"what",opt:o,ph:wi===0&&i===0?"e.g. Draft article 1 outline":""})}
+    ${fl(p+".desc","Description","text",{opt:true})}
+    <div class="grid4">${pillarSel(p+".pillar","Pillar",{opt:o})}${trackSel(p+".track")}${sel(p+".priority","Priority",[["1","1 · must do"],["2","2 · should"],["3","3 · nice to have"]],{opt:o})}${fl(p+".mins","Minutes","num",{opt:o,ph:"60"})}</div>
+    <div class="grid2">${sel(p+".parent","90-day goal",ninetyOpts(),{blank:"None",opt:true})}${fl(p+".notes","Notes","text",{opt:true})}</div></div>`}
+   h+=`<button type="button" class="addrow" data-add="weeks.${w}" data-def="${def}">+ Add a goal to week ${wi+1}</button>`});
+  return h+`<div class="grid2">${sel("addHabits","Add your habits to each week's rows?",[["yes","Yes"],["no","No"]],{opt:true,blank:"Yes (default)"})}</div>`}},
+
+{id:"rhythm",group:"Part 3 · Commit",nav:"Review & support",eyebrow:"Keep it going",time:"6 min",title:"Set your review rhythm and tell someone",
+ lede:"The plan only works if you look at it. A short weekly review goes into every week's goals automatically.",
+ body(){return why("Tracking progress improves goal attainment (d = 0.40 across 138 studies), more so when it's written down and shared with someone (Harkin et al., 2016). Telling someone whose opinion you respect raises commitment (Klein et al., 2020).")+
+  `<div class="grid3">${sel("review.day","Weekly review day",["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"])}${fl("review.time","Time","text",{ph:"08:00"})}${fl("review.mins","Minutes","num",{ph:"20"})}</div>
+  <div class="hint">Each review: what got done, what slipped and why, a 1–10 score for progress on each 90-day goal, and next week's goals.</div>`+
+  text("tell.who","Who will you tell about the annual target?",{hint:"Pick someone whose judgement you respect.",ph:"Name"})+
+  area("tell.ask","What specific help will you ask them for?",{ph:"e.g. Ask me at the end of each month whether article 1 is out"})+
+  `<div class="grid2">${sel("tell.freq","How often will you update them?",[["fortnightly","Fortnightly"],["monthly","Monthly"],["quarterly","At the 90-day mark"]])}</div>`+
+  text("firstStep","Your first small step, which you'll do today or tomorrow",{ph:"Something that takes under 15 minutes"})}},
+
+{id:"output",group:"Output",nav:"Export to Daily Compass",eyebrow:"Output",title:"Your plan, ready for Daily Compass",
+ lede:"",noProgress:true,body(){return outputHTML()}}
+];
+
+/* ================= output builders ================= */
+function csvCell(v){v=v==null?"":String(v);return /[",\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}
+function weeklyRows(){
+  const d=dates(), rows=[], wantHabits=V("addHabits")!=="no";
+  [["w1",d.w1,3],["w2",d.w2,2]].forEach(([w,date,def])=>{
+    const ws=iso(date), n=count("weeks."+w,def);
+    for(let i=0;i<n;i++){const p="weeks."+w+"."+i;if(!V(p+".title"))continue;
+      rows.push({week_start_date:ws,pillar:V(p+".pillar"),track:trackVal(p+".track"),goal_title:V(p+".title"),goal_description:V(p+".desc"),priority:V(p+".priority")||"2",time_estimate_mins:V(p+".mins"),parent_90day_goal:parentTitle(V(p+".parent")),status:"not_started",notes:V(p+".notes")})}
+    if(wantHabits){const hn=count("habits",3);for(let i=0;i<hn;i++){const p="habits."+i;if(!V(p+".what"))continue;
+      const f=FREQ.find(x=>x[0]===V(p+".freq")), times=f?f[2]:1, mins=+V(p+".mins")||0, t=Math.round(mins*times);
+      rows.push({week_start_date:ws,pillar:V(p+".pillar"),track:"",goal_title:"Habit: "+V(p+".what"),goal_description:[V(p+".cue"),f?f[3]:""].filter(Boolean).join(" · "),priority:"2",time_estimate_mins:t?String(t):"",parent_90day_goal:parentTitle(V(p+".parent")),status:"not_started",notes:"Recurring habit"+(f?" ("+f[3]+")":"")})}}
+    if(V("review.day")) rows.push({week_start_date:ws,pillar:"Personal Development and Learning",track:"",goal_title:"Weekly review and progress scores",goal_description:`${V("review.day")}${V("review.time")?" "+V("review.time"):""}: done / slipped / why; score each 90-day goal 1–10; set next week`,priority:"1",time_estimate_mins:V("review.mins")||"20",parent_90day_goal:"",status:"not_started",notes:"Keeps the cascade honest"});
+  });
+  return rows;
+}
+function buildCSV(){return [CSV_COLS.join(",")].concat(weeklyRows().map(r=>CSV_COLS.map(c=>csvCell(r[c])).join(","))).join("\r\n")+"\r\n"}
+function ninetyList(){const d=dates();return [0,1,2].map(i=>{const p="ninety."+i;if(!V(p+".title"))return null;
+  const plans=[1,2,3].map(k=>V(p+".if"+k)&&V(p+".then"+k)?{if:V(p+".if"+k),then:V(p+".then"+k)}:null).filter(Boolean);
+  return{title:V(p+".title"),pillar:V(p+".pillar"),track:trackVal(p+".track"),moves_annual_target:V(p+".annual")==="yes",start_date:iso(d.start),end_date:iso(d.q),definition_of_done:V(p+".done"),woop:{outcome:V(p+".outcome"),obstacle:V(p+".obstacle"),if_then_plans:plans}}}).filter(Boolean)}
+function habitList(){const n=count("habits",3),out=[];for(let i=0;i<n;i++){const p="habits."+i;if(!V(p+".what"))continue;const f=FREQ.find(x=>x[0]===V(p+".freq"));
+  out.push({habit:V(p+".what"),cue:V(p+".cue"),frequency:f?f[1]:"",minutes_each:+V(p+".mins")||null,pillar:V(p+".pillar"),parent_90day_goal:parentTitle(V(p+".parent"))})}return out}
+function buildJSON(){const d=dates();return JSON.stringify({
+  generated:new Date().toISOString(),source:"Yearwise",
+  plan:{start_date:iso(d.start),ninety_day_end:iso(d.q),year_end:iso(d.yearEnd)},
+  life_scores:AREAS.map(([k,n])=>{const p="life."+k;return{area:n,score:+V(p+".score")||null,why:V(p+".why"),plus_two:V(p+".plus2")}}),
+  pillar_scores_earlier:PILLARS.map(([n])=>{const p="ratings."+PKEY(n);return V(p+".score")?{pillar:n,score:+V(p+".score"),why:V(p+".why"),plus_two:V(p+".plus2")}:null}).filter(Boolean),
+  annual_target:{title:V("annual.title"),outcome:V("annual.outcome"),measure:V("annual.measure"),pillar:V("annual.pillar"),motive:V("annual.motive"),needs:V("annual.needs"),due:iso(d.yearEnd)},
+  reflection:{highs_common_thread:V("highThreads"),needed_in_lows:V("lowNeed"),best_year_top_three:[0,1,2].map(i=>V("bestThree."+i)).filter(Boolean),
+    lessons:[0,1,2].map(i=>V("lessonsHigh."+i+".learned")).concat([0,1,2].map(i=>V("lessonsLow."+i+".learned"))).filter(Boolean)},
+  starts:[0,1,2].map(i=>V("start."+i+".what")?{start:V("start."+i+".what"),pillar:V("start."+i+".pillar"),motive:V("start."+i+".motive"),goes_to:V("start."+i+".dest")}:null).filter(Boolean),
+  ninety_day_goals:ninetyList(),habits:habitList(),
+  stops:[0,1,2].map(i=>V("stop."+i+".what")?{stop:V("stop."+i+".what"),instead:V("stop."+i+".instead")}:null).filter(Boolean),
+  continues:[0,1,2].map(i=>V("cont."+i+".what")?{continue:V("cont."+i+".what"),keep_going:V("cont."+i+".keep")}:null).filter(Boolean),
+  review:{day:V("review.day"),time:V("review.time"),minutes:+V("review.mins")||20},
+  accountability:{who:V("tell.who"),ask:V("tell.ask"),update:V("tell.freq")},
+  first_step:V("firstStep"),weekly_goals:weeklyRows()},null,2)}
+function buildMD(){const d=dates(),L=[];const line=(s="")=>L.push(s);
+  line(`# Yearwise plan · ${fmt(d.start)} to ${fmt(d.yearEnd)}`);line();
+  line(`Looking back: ${d.revFrom} – ${d.revTo}`);line();
+  line("## Life check-in");line("| Area | Score | Why | +2 looks like |");line("|---|---|---|---|");
+  AREAS.forEach(([k,n])=>{const p="life."+k;line(`| ${n} | ${V(p+".score")||"–"} | ${V(p+".why").replace(/\n/g," ")} | ${V(p+".plus2")} |`)});line();
+  const lg=PILLARS.filter(([n])=>V("ratings."+PKEY(n)+".score"));if(lg.length){line("Earlier 6 P's scores: "+lg.map(([n])=>n+" "+V("ratings."+PKEY(n)+".score")).join(", "));line()}
+  const hl=[0,1,2].map(i=>V("lessonsHigh."+i+".learned")).filter(Boolean), ll=[0,1,2].map(i=>V("lessonsLow."+i+".learned")).filter(Boolean);
+  if(hl.length||ll.length){line("## Lessons");hl.concat(ll).forEach(x=>line("- "+x.replace(/\n/g," ")));line()}
+  const b3=[0,1,2].map(i=>V("bestThree."+i)).filter(Boolean);
+  if(b3.length||V("highThreads")||V("lowNeed")){line("## What matters");if(V("highThreads"))line("- Best moments had in common: "+V("highThreads"));if(V("lowNeed"))line("- Needed in the lows: "+V("lowNeed"));b3.forEach(x=>line("- Best year: "+x));line()}
+  const sts=[0,1,2].filter(i=>V("start."+i+".what"));if(sts.length){line("## Starts");sts.forEach(i=>{const dd=DEST.find(x=>x[0]===V("start."+i+".dest"));line(`- ${V("start."+i+".what")}${dd?" → "+dd[1]:""}`)});line()}
+  line("## Annual target");line(`**${V("annual.title")||"(not set)"}**`+(V("annual.pillar")?` · ${V("annual.pillar")}`:""));line();
+  if(V("annual.outcome"))line(`By ${fmt(d.yearEnd)}: ${V("annual.outcome")}`);if(V("annual.measure"))line(`Measure: ${V("annual.measure")}`);if(V("annual.needs"))line(`Needs: ${V("annual.needs")}`);line();
+  line(`## 90-day goals (to ${fmt(d.q)})`);ninetyList().forEach((g,i)=>{line(`### ${i+1}. ${g.title}`);line(`${g.pillar}${g.track?" · "+g.track:""}${g.moves_annual_target?" · moves annual target":""}`);
+   if(g.definition_of_done)line(`- Done means: ${g.definition_of_done}`);if(g.woop.outcome)line(`- Outcome: ${g.woop.outcome}`);if(g.woop.obstacle)line(`- Obstacle: ${g.woop.obstacle}`);g.woop.if_then_plans.forEach(x=>line(`- If ${x.if}, then ${x.then}`));line()});
+  const st=[0,1,2].filter(i=>V("stop."+i+".what"));if(st.length){line("## Stop → instead");st.forEach(i=>line(`- Stop: ${V("stop."+i+".what")} → Instead: ${V("stop."+i+".instead")||"(not set)"}`));line()}
+  const ct=[0,1,2].filter(i=>V("cont."+i+".what"));if(ct.length){line("## Continue");ct.forEach(i=>line(`- ${V("cont."+i+".what")}${V("cont."+i+".keep")?" · "+V("cont."+i+".keep"):""}`));line()}
+  const hb=habitList();if(hb.length){line("## Habits");hb.forEach(x=>line(`- ${x.habit} · ${x.frequency||"?"}${x.cue?" · "+x.cue:""}${x.minutes_each?" · "+x.minutes_each+" min":""}`));line()}
+  line("## Rhythm and support");if(V("review.day"))line(`- Weekly review: ${V("review.day")} ${V("review.time")} (${V("review.mins")||20} min)`);
+  if(V("tell.who"))line(`- Telling: ${V("tell.who")} · ${V("tell.freq")||""}${V("tell.ask")?" · ask: "+V("tell.ask").replace(/\n/g," "):""}`);
+  if(V("firstStep"))line(`- First step: ${V("firstStep")}`);line();
+  line("## Weekly goals (Daily Compass CSV rows)");line("```csv");line(buildCSV().trim());line("```");
+  return L.join("\n")}
+function checks(){const c=[],ok=(b,t)=>c.push([!!b,t]);
+  ok(V("annual.title")&&V("annual.measure"),"Annual target has a title and a measure");
+  const nl=ninetyList();ok(nl.length>=1,"At least one 90-day goal");
+  ok(nl.length&&nl.some(g=>g.moves_annual_target),"At least one 90-day goal moves the annual target");
+  ok(nl.length&&nl.every(g=>g.pillar),"Every 90-day goal has a pillar");
+  ok(nl.length&&nl.every(g=>g.woop.if_then_plans.length),"Every 90-day goal has an if–then plan");
+  if(V("annual.measure")&&!/\d/.test(V("annual.measure")))c.push([false,"The annual target's measure has no number in it"]);
+  nl.forEach(g=>{if(g.definition_of_done&&!/\d/.test(g.definition_of_done))c.push([false,`"${g.title}": 'done' has no number, so it's hard to tell when you're there`])});
+  [0,1,2].forEach(i=>{const t=V("ninety."+i+".title");if(!t)return;    const weak=[1,2,3].filter(k=>{const a=V("ninety."+i+".if"+k),b=V("ninety."+i+".then"+k);return (a&&WEAK_IF.test(a))||(b&&WEAK_THEN.test(b))}).length;
+    if(weak)c.push([false,`"${t}": ${weak} if–then plan${weak>1?"s read":" reads"} as a wish rather than a moment and an action`])});
+  const used=t=>{const all=[V("annual.title")].concat([0,1,2].map(i=>V("ninety."+i+".title"))).concat(habitList().map(h=>h.habit)).concat(weeklyRows().map(r=>r.goal_title.replace(/^Habit: /,""))).map(x=>x.toLowerCase());
+    const k=t.toLowerCase().split(/\W+/).filter(w=>w.length>3);return all.some(a=>a===t.toLowerCase()||(k.length&&k.filter(w=>a.includes(w)).length>=Math.min(2,k.length)))};
+  [0,1,2].forEach(i=>{const t=V("start."+i+".what");if(!t||V("start."+i+".dest")==="later")return;if(!used(t))c.push([false,`Start "${t}" isn't in any goal, habit or weekly goal yet`])});
+  const st=[0,1,2].filter(i=>V("stop."+i+".what"));ok(st.every(i=>V("stop."+i+".instead")),"Every stop has an 'instead'");
+  const wr=weeklyRows().filter(r=>!r.goal_title.startsWith("Habit: ")&&r.goal_title!=="Weekly review and progress scores");
+  ok(wr.some(r=>r.week_start_date===iso(dates().w1)),"Week 1 has at least one goal");
+  const missing=wr.filter(r=>!(r.pillar&&r.time_estimate_mins));
+  ok(wr.length&&!missing.length,missing.length?`Missing a pillar or time estimate: ${missing.map(r=>r.goal_title).join(", ")}`:"Every weekly goal has a pillar and a time estimate");
+  ok(V("review.day"),"Weekly review day is set");
+  const should=[0,1,2].filter(i=>V("start."+i+".what")&&V("start."+i+".motive")==="should").length+(V("annual.motive")==="should"?1:0);
+  if(should)c.push([false,`${should} goal${should>1?"s are":" is"} mostly "should", so check you want ${should>1?"them":"it"}`]);
+  const covered=new Set([...nl.map(g=>g.pillar),...habitList().map(h=>h.pillar)]);
+  const low=AREAS.map(([k,n])=>[n,+V("life."+k+".score")]).filter(x=>x[1]&&x[1]<=5).sort((a,b)=>a[1]-b[1]);
+  if(low.length)c.push([false,`Low-scoring areas: ${low.map(x=>x[0]+" "+x[1]+"/10").join(", ")}. Check a goal or habit addresses at least the lowest.`]);
+  return c}
+function outputHTML(){const rows=weeklyRows(),ch=checks(),total=rows.reduce((a,r)=>a+(+r.time_estimate_mins||0),0);
+  const byWeek={};rows.forEach(r=>{byWeek[r.week_start_date]=(byWeek[r.week_start_date]||0)+(+r.time_estimate_mins||0)});
+  return `<p class="lede" style="margin-top:-14px">Check the list, then download or copy. The CSV matches your weekly-goals template; the JSON carries the annual target, 90-day goals, if–then plans and habits for when you build the import.</p>
+  <div class="block"><div class="lbl">Readiness</div><ul class="checks">${ch.map(([k,t])=>`<li><span class="${k?"ok":"no"}">${k?"✓":"!"}</span><span>${esc(t)}</span></li>`).join("")}</ul></div>
+  <div class="block"><div class="lbl">weekly_goals.csv · ${rows.length} rows</div>
+   <div class="hint">${Object.entries(byWeek).map(([w,m])=>`w/c ${w}: ${Math.round(m/60*10)/10} h planned`).join(" · ")||"No rows yet"}</div>
+   <div class="tablewrap"><table class="csv"><tr>${CSV_COLS.map(c=>`<th>${c}</th>`).join("")}</tr>${rows.map(r=>`<tr>${CSV_COLS.map(c=>`<td title="${esc(r[c])}">${esc(r[c])}</td>`).join("")}</tr>`).join("")}</table></div></div>
+  <div class="actions">
+   <button class="btn primary" data-dl="csv" hidden>Download weekly_goals.csv</button>
+   <button class="btn" data-copy="csv">Copy CSV</button>
+   <button class="btn" data-dl="md" hidden>Download plan (.md)</button>
+   <button class="btn" data-copy="md">Copy plan</button>
+   <button class="btn" data-dl="json" hidden>Download full plan (.json)</button></div>
+  <div class="toast" id="toast" role="status"></div>
+  <div class="block"><label class="lbl" for="rawout">Plan summary (select all to copy if the buttons don't work)</label><textarea id="rawout" class="raw" readonly></textarea></div>
+  <p class="pull">Come back to this at the 90-day mark: re-score the ten life areas, run stop / continue / start again, and set the next three goals.</p>`}
+
+/* ================= rendering ================= */
+function progressOf(s){if(s.noProgress)return null;if(s.progress)return s.progress();COL=[];s.body();const ps=COL;COL=null;return ps.length?ps.filter(p=>filled(getP(state,p))).length/ps.length:0}
+function renderNav(){
+  const groups=[...new Set(SECTIONS.map(s=>s.group))];
+  const times={"Part 1 · Look back":"~45 min","Part 2 · Choose direction":"~30 min","Part 3 · Commit":"~45 min"};
+  $("#nav").innerHTML=groups.map(g=>`<div class="navgroup"><h3>${esc(g)}${times[g]?`<em>${times[g]}</em>`:""}</h3>`+
+    SECTIONS.filter(s=>s.group===g).map(s=>`<button class="navbtn" data-go="${s.id}" aria-current="${s.id===current}"><span class="ring" data-ring="${s.id}"></span>${esc(s.nav)}</button>`).join("")+`</div>`).join("");
+  updateRings();
+}
+function updateRings(){SECTIONS.forEach(s=>{const r=document.querySelector(`[data-ring="${s.id}"]`);if(!r)return;const p=progressOf(s);
+  if(p===null){r.style.visibility="hidden";return}r.style.setProperty("--p",p);r.classList.toggle("done",p>=0.999)})}
+function header(){const d=dates();$("#bigyear").innerHTML=`${d.start.getFullYear()}<span>→</span>${String(d.yearEnd.getFullYear()).slice(2)}`;$("#period").textContent=`Plan from ${fmt(d.start)}`}
+function pagerHTML(){const i=SECTIONS.findIndex(s=>s.id===current),prev=SECTIONS[i-1],next=SECTIONS[i+1];
+  return `<div class="pager">${prev?`<button class="btn" data-go="${prev.id}">← ${esc(prev.nav)}</button>`:"<span></span>"}${next?`<button class="btn primary" data-go="${next.id}">${i===0?"Begin":"Next: "+esc(next.nav)} →</button>`:""}</div>`}
+function renderMain(){const s=SECTIONS.find(x=>x.id===current);
+  $("#main").innerHTML=`<section class="sec">`+(s.intro?s.body():`<div><div class="eyebrow">${esc(s.eyebrow)}${s.time?`<span class="t">${s.time}</span>`:""}</div><h1>${esc(s.title)}</h1>${s.lede?`<p class="lede">${esc(s.lede)}</p>`:""}</div>${s.body()}`)+pagerHTML()+`</section>`;
+  fillValues();if(current==="output")wireOutput();}
+function fillValues(){const act=document.activeElement;
+  document.querySelectorAll("[data-p]").forEach(el=>{if(el===act)return;const v=getP(state,el.dataset.p);el.value=v==null?"":v});
+  document.querySelectorAll(".dots").forEach(g=>{const btns=g.querySelectorAll(".dot"),v=+getP(state,btns[0].dataset.rate)||0;
+    btns.forEach(b=>{const n=+b.dataset.v;b.classList.toggle("on",n===v);b.classList.toggle("fill",n<v);b.setAttribute("aria-checked",String(n===v))})});
+  renderChips();showIfs();}
+function updateParentOptions(){}
+function ifChecks(){document.querySelectorAll("[data-ifcheck]").forEach(el=>{const [p,k]=el.dataset.ifcheck.split("|");const m=ifIssue(p,k);el.textContent=m;el.hidden=!m})}
+function showIfs(){ifChecks();document.querySelectorAll("[data-show-if]").forEach(el=>{const [p,v]=el.dataset.showIf.split("=");el.hidden=V(p)!==v})}
+function srcItems(k){
+  if(k==="highs"||k==="lows")return [0,1,2,3,4].map(i=>V(k+"."+i)).filter(Boolean);
+  if(k==="starts")return [0,1,2].map(i=>V("start."+i+".what")).filter(Boolean);
+  if(k==="habitsrc")return [...new Set([0,1,2].map(i=>V("stop."+i+".instead")).concat([0,1,2].map(i=>V("cont."+i+".what"))).concat([0,1,2].filter(i=>["habit",""].includes(V("start."+i+".dest"))).map(i=>V("start."+i+".what"))).filter(Boolean))];
+  if(k==="annualsrc")return [...new Set([0,1,2].map(i=>V("start."+i+".what")).concat([0,1,2].map(i=>V("bestThree."+i))).filter(Boolean))];
+  if(k==="ninetysrc")return [...new Set([0,1,2].filter(i=>["ninety",""].includes(V("start."+i+".dest"))).map(i=>V("start."+i+".what")).concat([0,1,2].map(i=>V("bestThree."+i))).filter(Boolean))];
+  return []}
+function renderChips(){document.querySelectorAll(".chips[data-src]").forEach(box=>{const items=srcItems(box.dataset.src),cur=V(box.dataset.target);
+  box.innerHTML=items.map(t=>`<button type="button" class="chip" data-fill="${esc(box.dataset.target)}" data-val="${esc(t)}" aria-pressed="${t===cur}" title="${esc(t)}">${esc(t)}</button>`).join("");box.hidden=!items.length})}
+
+/* ================= output wiring ================= */
+let dl=null;
+function toast(t){const el=$("#toast");if(el)el.textContent=t}
+function wireOutput(){const raw=$("#rawout");if(raw)raw.value=buildMD();
+  if(dl)document.querySelectorAll("[data-dl]").forEach(b=>b.hidden=false)}
+async function copy(txt,label){try{await navigator.clipboard.writeText(txt);toast(label+" copied")}catch(e){const raw=$("#rawout");raw.value=txt;raw.focus();raw.select();toast("Copy blocked here. The text is selected below: press Ctrl+C.")}}
+async function save(kind){const d=iso(dates().start);
+  const f={csv:["weekly_goals_"+d+".csv",buildCSV()],md:["yearwise_plan_"+d+".md",buildMD()],json:["yearwise_plan_"+d+".json",buildJSON()]}[kind];
+  try{await dl.save({filename:f[0],data:f[1]});toast("Saved "+f[0])}catch(e){const c=e&&e.code;
+    if(c==="declined")toast("Download cancelled");else if(c==="rate_limited")toast("A download prompt is already open");else toast("Download isn't available here. Use Copy instead.")}}
+
+/* ================= events ================= */
+function go(id){if(!SECTIONS.some(s=>s.id===id))return;current=id;renderNav();renderMain();
+  try{history.replaceState(null,"","#"+id)}catch(e){}try{localStorage.setItem("yearwise:last",id)}catch(e){}
+  window.scrollTo({top:0});const a=document.querySelector('.navbtn[aria-current="true"]');if(a&&matchMedia("(max-width:860px)").matches)a.scrollIntoView({block:"nearest",inline:"center"})}
+document.addEventListener("click",e=>{
+  const g=e.target.closest("[data-go]");if(g){go(g.dataset.go);return}
+  const r=e.target.closest("[data-rate]");if(r){const p=r.dataset.rate,v=+r.dataset.v;setP(state,p,(+getP(state,p)===v)?"":v);fillValues();changed();return}
+  const c=e.target.closest("[data-fill]");if(c){setP(state,c.dataset.fill,c.dataset.val);fillValues();changed();return}
+  const a=e.target.closest("[data-add]");if(a){const p=a.dataset.add,n=count(p,+a.dataset.def);setP(state,p+".n",n+1);changed();renderMain();return}
+  const cp=e.target.closest("[data-copy]");if(cp){copy(cp.dataset.copy==="csv"?buildCSV():buildMD(),cp.dataset.copy==="csv"?"CSV":"Plan");return}
+  const d=e.target.closest("[data-dl]");if(d&&dl){save(d.dataset.dl)}
+});
+document.addEventListener("input",e=>{const el=e.target.closest("[data-p]");if(!el)return;setP(state,el.dataset.p,el.value);changed(el.dataset.p)});
+
+/* ================= saving ================= */
+const LKEY="yearwise:plan";
+let timer=null,ringTimer=null,saving=false,pending=false;
+function setStatus(s,t){const el=$("#status");el.dataset.s=s;el.querySelector("span").textContent=t}
+function changed(path){state.updatedAt=Date.now();
+  try{localStorage.setItem(LKEY,JSON.stringify(state))}catch(e){}
+  clearTimeout(ringTimer);ringTimer=setTimeout(updateRings,300);
+  if(path){if(/^(highs|lows|start|stop|cont)\./.test(path))renderChips();if(/(motive|track)$/.test(path))showIfs();if(/\.(if|then)\d$/.test(path))ifChecks();if(/^ninety\.\d\.title$/.test(path))updateParentOptions();if(path==="planStart"){header();renderMain()}}
+  pending=true;clearTimeout(timer);timer=setTimeout(flush,900);
+  setStatus(remote?"saving":"local",remote?"Saving…":"Saved on this device");}
+async function flush(){clearTimeout(timer);
+  if(!remote){pending=false;return}
+  if(saving||!pending)return;saving=true;pending=false;
+  try{await remote.set(JSON.parse(JSON.stringify(state)));setStatus("saved","Saved to your account")}
+  catch(e){const code=e&&e.code;
+    if(["invalid_argument","not_granted","capability_disabled","capability_removed","revoked","transform_error"].includes(code)){remote=null;setStatus("local","Saved on this device only")}
+    else{pending=true;setStatus("error","Couldn't save, retrying");setTimeout(flush,3000+Math.random()*2000)}}
+  saving=false;if(pending&&remote)timer=setTimeout(flush,600)}
+window.addEventListener("pagehide",()=>{if(pending)flush()});
+
+async function connect(){
+  if(!window.claude||!window.claude.use)return;
+  window.claude.use("downloads").then(x=>{dl=x;if(current==="output")wireOutput()}).catch(()=>{});
+  try{const [db,user]=await Promise.all([window.claude.use("db"),window.claude.use("user")]);
+    if(!db||!user)return;const uid=await user.id();if(!uid)return;
+    remote=db.collection("data/users/"+uid).doc("plan");
+    const snap=await remote.get();
+    if(snap.exists){const r=snap.data()||{};
+      if(!state.updatedAt||(r.updatedAt||0)>=state.updatedAt){state=JSON.parse(JSON.stringify(r));migrate();try{localStorage.setItem(LKEY,JSON.stringify(state))}catch(e){}header();renderNav();renderMain();setStatus("saved","Saved to your account")}
+      else{pending=true;flush()}}
+    else if(state.updatedAt){pending=true;flush()}
+    else setStatus("idle","Saves to your account as you type");
+  }catch(e){remote=null;setStatus("local","Saved on this device")}}
+
+/* ================= boot ================= */
+try{state=JSON.parse(localStorage.getItem(LKEY)||"null")||{}}catch(e){state={}}
+const h=(location.hash||"").slice(1);let last=null;try{last=localStorage.getItem("yearwise:last")}catch(e){}
+current=SECTIONS.some(s=>s.id===h)?h:(SECTIONS.some(s=>s.id===last)?last:"welcome");
+migrate();header();renderNav();renderMain();
+if(state.updatedAt)setStatus("local","Saved on this device");
+connect();
+})();
+</script>

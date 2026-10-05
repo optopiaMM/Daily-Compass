@@ -3,7 +3,7 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import {
   morningSessions, gratitudeEntries, livingPowerfullyScores,
   weeklyGoals, weeklyGoalTemplates, dailyItems, dailyQuotes,
-  annualTargets, ninetyDayGoals, oauthTokens, calendarFeeds,
+  annualTargets, ninetyDayGoals, oauthTokens, calendarFeeds, yearwiseSessions,
   type InsertGratitudeEntry, type InsertLivingPowerfullyScore,
   type InsertDailyItem, type InsertDailyQuote,
   type InsertAnnualTarget, type InsertNinetyDayGoal,
@@ -13,7 +13,17 @@ import {
   type WeeklyGoalTemplate,
   type OauthToken, type InsertOauthToken,
   type CalendarFeed,
+  type YearwiseSession, type InsertYearwiseSession,
 } from "@shared/schema";
+import type { Answers } from "@shared/yearwise";
+import { commitYearwiseSession, type CommitResult } from "./yearwise-commit";
+import { saveWeeklyGoals, type WeeklyGoalInput } from "./weekly-goals";
+import {
+  ensureRecurringRows, freshStartFor, getReviewContext, goalsWithTrends, saveWeeklyReview,
+  type GoalWithTrend, type ReviewContext, type WeeklyReviewInput,
+} from "./weekly-review";
+
+export type { WeeklyGoalInput };
 
 export interface IStorage {
   getAnnualTarget(): Promise<AnnualTarget | undefined>;
@@ -36,7 +46,7 @@ export interface IStorage {
   createGratitudeEntry(entry: InsertGratitudeEntry): Promise<GratitudeEntry>;
   createLivingPowerfullyScores(entries: InsertLivingPowerfullyScore[]): Promise<void>;
   getWeeklyGoals(weekStartDate: string): Promise<WeeklyGoal[]>;
-  createWeeklyGoals(weekStartDate: string, goals: { category: string; goalText: string; sortOrder: number; isTopFocus?: boolean }[]): Promise<void>;
+  createWeeklyGoals(weekStartDate: string, goals: WeeklyGoalInput[]): Promise<void>;
   addWeeklyGoal(weekStartDate: string, category: string, goalText: string): Promise<WeeklyGoal>;
   getWeeklyGoalCountByCategory(weekStartDate: string, category: string): Promise<number>;
   markWeeklyGoalComplete(goalId: number): Promise<void>;
@@ -51,6 +61,16 @@ export interface IStorage {
   scheduleItemForDate(itemId: number, reviewDate: string): Promise<void>;
   getDailyQuote(date: string): Promise<DailyQuote | undefined>;
   saveDailyQuote(quote: InsertDailyQuote): Promise<DailyQuote>;
+  getYearwiseSessions(): Promise<YearwiseSession[]>;
+  getYearwiseSession(id: number): Promise<YearwiseSession | undefined>;
+  createYearwiseSession(data: InsertYearwiseSession): Promise<YearwiseSession>;
+  saveYearwiseAnswers(id: number, answers: Record<string, unknown>, planStart: string): Promise<YearwiseSession | undefined>;
+  commitYearwiseSession(id: number, answers: Answers): Promise<CommitResult | undefined>;
+  getWeeklyReview(weekStartDate: string): Promise<ReviewContext>;
+  saveWeeklyReview(input: WeeklyReviewInput): Promise<{ createdGoalIds: number[] }>;
+  getGoalTrends(weekStartDate: string): Promise<GoalWithTrend[]>;
+  isFreshStart(today: string): Promise<boolean>;
+  ensureRecurringRows(weekStartDate: string): Promise<{ created: number }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -72,22 +92,30 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
 
+  // Yearwise can create up to three 90-day goals for the same window, all with the
+  // same created_at. Callers that want "the" current goal get goal 1 (yearwise_key
+  // "g0"), then 2, then 3; rows without a key sort after them, then newest id.
   async getCurrentNinetyDayGoal() {
     const today = new Date().toISOString().split("T")[0];
+    const order = [
+      desc(ninetyDayGoals.createdAt),
+      sql`${ninetyDayGoals.yearwiseKey} asc nulls last`,
+      desc(ninetyDayGoals.id),
+    ];
     const [inWindow] = await db.select().from(ninetyDayGoals)
       .where(and(
         eq(ninetyDayGoals.active, true),
         sql`${ninetyDayGoals.startDate} <= ${today}`,
         sql`${ninetyDayGoals.endDate} >= ${today}`,
       ))
-      .orderBy(desc(ninetyDayGoals.createdAt))
+      .orderBy(...order)
       .limit(1);
     if (inWindow) return inWindow;
     // Fallback: nearest active goal (most recent by createdAt) so the cascade
     // is still reachable even before today is inside any quarter window.
     const [fallback] = await db.select().from(ninetyDayGoals)
       .where(eq(ninetyDayGoals.active, true))
-      .orderBy(desc(ninetyDayGoals.createdAt))
+      .orderBy(...order)
       .limit(1);
     return fallback;
   }
@@ -223,23 +251,10 @@ export class DatabaseStorage implements IStorage {
       .orderBy(weeklyGoals.category, weeklyGoals.sortOrder);
   }
 
-  async createWeeklyGoals(weekStartDate: string, goals: { category: string; goalText: string; sortOrder: number; isTopFocus?: boolean }[]) {
-    await db.delete(weeklyGoals).where(eq(weeklyGoals.weekStartDate, weekStartDate));
-    if (goals.length > 0) {
-      const current = await this.getCurrentNinetyDayGoal();
-      const ninetyDayGoalId = current?.id ?? null;
-      await db.insert(weeklyGoals).values(
-        goals.map((g) => ({
-          weekStartDate,
-          category: g.category,
-          goalText: g.goalText,
-          sortOrder: g.sortOrder,
-          completed: false,
-          ninetyDayGoalId,
-          isTopFocus: g.isTopFocus ?? false,
-        }))
-      );
-    }
+  // Updates the week's rows in place, so completed flags survive a re-save.
+  async createWeeklyGoals(weekStartDate: string, goals: WeeklyGoalInput[]) {
+    const current = await this.getCurrentNinetyDayGoal();
+    await saveWeeklyGoals(db, weekStartDate, goals, current?.id ?? null);
   }
 
   async addWeeklyGoal(weekStartDate: string, category: string, goalText: string) {
@@ -364,6 +379,51 @@ export class DatabaseStorage implements IStorage {
       return existing;
     }
     return result;
+  }
+  async getYearwiseSessions() {
+    return db.select().from(yearwiseSessions).orderBy(desc(yearwiseSessions.updatedAt));
+  }
+
+  async getYearwiseSession(id: number) {
+    const [row] = await db.select().from(yearwiseSessions).where(eq(yearwiseSessions.id, id));
+    return row;
+  }
+
+  async createYearwiseSession(data: InsertYearwiseSession) {
+    const [row] = await db.insert(yearwiseSessions).values(data).returning();
+    return row;
+  }
+
+  async saveYearwiseAnswers(id: number, answers: Record<string, unknown>, planStart: string) {
+    const [row] = await db.update(yearwiseSessions)
+      .set({ answers, planStart, updatedAt: new Date() })
+      .where(eq(yearwiseSessions.id, id))
+      .returning();
+    return row;
+  }
+
+  async commitYearwiseSession(id: number, answers: Answers) {
+    return commitYearwiseSession(db, id, answers);
+  }
+
+  async getWeeklyReview(weekStartDate: string) {
+    return getReviewContext(db, weekStartDate);
+  }
+
+  async saveWeeklyReview(input: WeeklyReviewInput) {
+    return saveWeeklyReview(db, input);
+  }
+
+  async getGoalTrends(weekStartDate: string) {
+    return goalsWithTrends(db, weekStartDate);
+  }
+
+  async isFreshStart(today: string) {
+    return freshStartFor(db, today);
+  }
+
+  async ensureRecurringRows(weekStartDate: string) {
+    return ensureRecurringRows(db, weekStartDate);
   }
 }
 

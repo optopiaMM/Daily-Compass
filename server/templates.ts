@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { parse } from "csv-parse/sync";
+import { eq } from "drizzle-orm";
 import { db } from "./db";
 import { weeklyGoalTemplates, type InsertWeeklyGoalTemplate } from "@shared/schema";
 
@@ -15,6 +16,7 @@ const PILLAR_MAP: Record<string, string> = {
   "People": "People",
   "Personal Development": "Personal Development & Learning",
   "Personal Development & Learning": "Personal Development & Learning",
+  "Personal Development and Learning": "Personal Development & Learning",
   "Physical Environment": "Physical Environment",
 };
 
@@ -111,11 +113,13 @@ export async function syncWeeklyGoalTemplatesFromCsv(): Promise<void> {
       status: emptyToNull(r.status) ?? "not_started",
       notes: emptyToNull(r.notes),
       sortOrder,
+      source: "csv",
     });
   }
 
-  // Wipe and reinsert — CSV is the source of truth.
-  await db.delete(weeklyGoalTemplates);
+  // Wipe and reinsert CSV rows only — CSV is the source of truth for source='csv'.
+  // Rows from other sources (yearwise, habit, review) are left untouched.
+  await db.delete(weeklyGoalTemplates).where(eq(weeklyGoalTemplates.source, "csv"));
   if (toInsert.length > 0) {
     // Insert in batches to avoid any parameter-count limits.
     const BATCH = 200;

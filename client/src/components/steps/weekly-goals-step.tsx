@@ -19,6 +19,24 @@ interface DraftGoal {
   carriedFromPrev?: boolean;
   suggestedFromTemplate?: boolean;
   templateTitle?: string;
+  // Kept when saving, so a goal from a plan row stays linked to its own 90-day goal.
+  links?: GoalLinks;
+}
+
+interface GoalLinks {
+  ninetyDayGoalId?: number | null;
+  weeklyGoalTemplateId?: number | null;
+  source?: string;
+  habitId?: number | null;
+}
+
+function templateLinks(t: WeeklyGoalTemplate): GoalLinks {
+  return {
+    ninetyDayGoalId: t.ninetyDayGoalId,
+    weeklyGoalTemplateId: t.id,
+    source: t.source === "csv" ? undefined : t.source,
+    habitId: t.habitId,
+  };
 }
 
 function formatPillarList(pillars: string[]): string {
@@ -63,6 +81,7 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
         id: `cur-${g.id}`,
         goalText: g.goalText,
         isTopFocus: g.isTopFocus ?? false,
+        links: { ninetyDayGoalId: g.ninetyDayGoalId, weeklyGoalTemplateId: g.weeklyGoalTemplateId, source: g.source, habitId: g.habitId },
       });
     }
     for (const g of previousGoals ?? []) {
@@ -76,6 +95,7 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
         goalText: g.goalText,
         isTopFocus: false,
         carriedFromPrev: true,
+        links: { ninetyDayGoalId: g.ninetyDayGoalId },
       });
     }
 
@@ -101,14 +121,18 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const goals: { category: string; goalText: string; sortOrder: number; isTopFocus: boolean }[] = [];
+      const goals: ({ id?: number; category: string; goalText: string; sortOrder: number; isTopFocus: boolean } & GoalLinks)[] = [];
       for (const cat of SIX_P_CATEGORIES) {
         (draft[cat] ?? []).forEach((g, i) => {
           if (g.goalText.trim()) goals.push({
+            // Rows loaded from this week keep their id, so the save updates them in
+            // place and their completed flag survives.
+            id: g.id.startsWith("cur-") ? Number(g.id.slice(4)) : undefined,
             category: cat,
             goalText: g.goalText.trim(),
             sortOrder: i,
             isTopFocus: g.isTopFocus,
+            ...g.links,
           });
         });
       }
@@ -141,6 +165,7 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
           isTopFocus: false,
           suggestedFromTemplate: true,
           templateTitle: t.goalTitle,
+          links: templateLinks(t),
         },
       ],
     }));
@@ -170,6 +195,7 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
             isTopFocus: false,
             suggestedFromTemplate: true,
             templateTitle: t.goalTitle,
+            links: templateLinks(t),
           },
         ];
       }

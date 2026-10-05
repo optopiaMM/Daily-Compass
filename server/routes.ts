@@ -16,7 +16,9 @@ import { scheduleDayWithClaude, clearDailyCompassEventsForDay } from "./agent";
 import { runPayslipAgent } from "./payslip";
 import { z } from "zod";
 import { iso, planStart } from "@shared/yearwise";
+import { addDaysISO, mondayOf, reviewBody } from "@shared/weekly-review";
 
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
 
   app.get("/api/annual-target", async (_req, res) => {
@@ -204,6 +206,53 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       console.error("[yearwise] commit failed:", error?.message ?? error);
       res.status(500).json({ message: error.message });
     }
+  });
+
+  // Weekly review loop ----------------------------------------------------
+  app.get("/api/weekly-review/:weekStartDate", async (req, res) => {
+    try {
+      if (!isoDate.safeParse(req.params.weekStartDate).success) return res.status(400).json({ message: "Use YYYY-MM-DD" });
+      res.json(await storage.getWeeklyReview(mondayOf(req.params.weekStartDate)));
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Writes the checklist's completed flags back to the week's goals, saves the
+  // review with its per-goal notes and scores, adds next week's goals and marks
+  // the week's review goal done, in one transaction.
+  app.post("/api/weekly-review", async (req, res) => {
+    try {
+      const parsed = reviewBody.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid review" });
+      const input = { ...parsed.data, weekStartDate: mondayOf(parsed.data.weekStartDate) };
+      res.json(await storage.saveWeeklyReview(input));
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.get("/api/ninety-day-goals/trends/:date", async (req, res) => {
+    try {
+      if (!isoDate.safeParse(req.params.date).success) return res.status(400).json({ message: "Use YYYY-MM-DD" });
+      res.json(await storage.getGoalTrends(mondayOf(req.params.date)));
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.get("/api/fresh-start/:date", async (req, res) => {
+    try {
+      if (!isoDate.safeParse(req.params.date).success) return res.status(400).json({ message: "Use YYYY-MM-DD" });
+      res.json({ freshStart: await storage.isFreshStart(req.params.date) });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // No scheduler in the app, so the day view calls this on load: it fills in this
+  // week's and next week's habit and review rows if they're missing. Idempotent.
+  app.post("/api/recurring/ensure", async (req, res) => {
+    try {
+      const parsed = z.object({ date: isoDate }).safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Missing or invalid 'date'" });
+      const week = mondayOf(parsed.data.date);
+      const thisWeek = await storage.ensureRecurringRows(week);
+      const nextWeek = await storage.ensureRecurringRows(addDaysISO(week, 7));
+      res.json({ created: thisWeek.created + nextWeek.created });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 
   // Outlook OAuth ----------------------------------------------------------

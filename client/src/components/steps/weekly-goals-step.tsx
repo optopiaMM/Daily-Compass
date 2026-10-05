@@ -121,10 +121,13 @@ export default function WeeklyGoalsStep({ date, onNext }: WeeklyGoalsStepProps) 
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const goals: ({ category: string; goalText: string; sortOrder: number; isTopFocus: boolean } & GoalLinks)[] = [];
+      const goals: ({ id?: number; category: string; goalText: string; sortOrder: number; isTopFocus: boolean } & GoalLinks)[] = [];
       for (const cat of SIX_P_CATEGORIES) {
         (draft[cat] ?? []).forEach((g, i) => {
           if (g.goalText.trim()) goals.push({
+            // Rows loaded from this week keep their id, so the save updates them in
+            // place and their completed flag survives.
+            id: g.id.startsWith("cur-") ? Number(g.id.slice(4)) : undefined,
             category: cat,
             goalText: g.goalText.trim(),
             sortOrder: i,

@@ -1,14 +1,17 @@
 import { useMemo, useState } from "react";
+import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { Check, ChevronDown, ChevronUp, Plus, Star, Sparkles, ExternalLink } from "lucide-react";
-import type { DailyItem, WeeklyGoal } from "@shared/schema";
+import { Check, ChevronDown, ChevronUp, Plus, Star, Sparkles, ExternalLink, ClipboardCheck, Sunrise } from "lucide-react";
+import type { DailyItem, NinetyDayGoal, WeeklyGoal } from "@shared/schema";
+import type { ScorePoint } from "@shared/weekly-review";
 import { formatDateNice, getDayOfWeek, getWeekStartDate } from "@/lib/dateUtils";
 import OutlookConnect from "@/components/outlook-connect";
+import Sparkline from "@/components/sparkline";
 
 interface DayViewProps { date: string; }
 
@@ -19,6 +22,8 @@ export default function DayView({ date }: DayViewProps) {
 
   const { data: items } = useQuery<DailyItem[]>({ queryKey: ["/api/daily-items", date] });
   const { data: weeklyGoals } = useQuery<WeeklyGoal[]>({ queryKey: ["/api/weekly-goals", weekStartDate] });
+  const { data: goalTrends } = useQuery<(NinetyDayGoal & { history: ScorePoint[] })[]>({ queryKey: ["/api/ninety-day-goals/trends", date] });
+  const { data: fresh } = useQuery<{ freshStart: boolean }>({ queryKey: ["/api/fresh-start", date] });
 
   const [goalsOpen, setGoalsOpen] = useState(false);
   const [newTodo, setNewTodo] = useState("");
@@ -87,6 +92,7 @@ export default function DayView({ date }: DayViewProps) {
 
   const completedGoals = (weeklyGoals ?? []).filter((g) => g.completed);
   const openGoals = (weeklyGoals ?? []).filter((g) => !g.completed);
+  const reviewGoal = (weeklyGoals ?? []).find((g) => g.source === "review");
 
   return (
     <div className="min-h-screen bg-background" data-testid="day-view">
@@ -211,6 +217,33 @@ export default function DayView({ date }: DayViewProps) {
       </div>
 
       <div className="max-w-lg mx-auto px-4 py-6 space-y-6">
+        {fresh?.freshStart && (
+          <div className="bg-success/10 border border-success/30 rounded-lg p-4 flex items-start gap-3" data-testid="banner-fresh-start">
+            <Sunrise className="w-5 h-5 text-success mt-0.5 shrink-0" />
+            <div className="space-y-1">
+              <p className="font-serif text-base">New week, fresh start</p>
+              <p className="text-sm text-muted-foreground">
+                A good moment to look at where your goals stand and pick this week's few things.
+              </p>
+              <Link href={`/review/${weekStartDate}`} className="text-sm text-success underline-offset-2 hover:underline">
+                Start this week's review
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {reviewGoal && !reviewGoal.completed && (
+          <Link
+            href={`/review/${weekStartDate}`}
+            className="w-full bg-card border rounded-lg p-3 flex items-center gap-3 hover-elevate"
+            data-testid="link-weekly-review"
+          >
+            <ClipboardCheck className="w-4 h-4 text-success shrink-0" />
+            <span className="flex-1 text-sm">{reviewGoal.goalText}</span>
+            <span className="text-xs text-muted-foreground">Open</span>
+          </Link>
+        )}
+
         {(weeklyGoals && weeklyGoals.length > 0) && (
           <div className="bg-card rounded-lg border">
             <button
@@ -230,17 +263,33 @@ export default function DayView({ date }: DayViewProps) {
                 {openGoals.map((g) => (
                   <div key={g.id} className="text-sm py-1">
                     <span className="text-xs text-muted-foreground uppercase tracking-wide mr-2">{g.category}</span>
-                    {g.goalText}
+                    {g.source === "review"
+                      ? <Link href={`/review/${weekStartDate}`} className="text-success underline-offset-2 hover:underline">{g.goalText}</Link>
+                      : g.goalText}
                   </div>
                 ))}
                 {completedGoals.map((g) => (
                   <div key={g.id} className="text-sm py-1 flex items-center gap-2 text-muted-foreground">
                     <Check className="w-3 h-3 text-success" />
-                    <span className="line-through">{g.goalText}</span>
+                    {g.source === "review"
+                      ? <Link href={`/review/${weekStartDate}`} className="line-through hover:text-foreground">{g.goalText}</Link>
+                      : <span className="line-through">{g.goalText}</span>}
                   </div>
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {(goalTrends && goalTrends.length > 0) && (
+          <div className="bg-card rounded-lg border p-3 space-y-2" data-testid="ninety-day-trends">
+            <p className="font-serif text-base">90-day goals</p>
+            {goalTrends.map((g) => (
+              <div key={g.id} className="flex items-center justify-between gap-3 py-1" data-testid={`trend-${g.id}`}>
+                <span className="text-sm leading-snug min-w-0">{g.goalText}</span>
+                <Sparkline history={g.history} className="shrink-0" />
+              </div>
+            ))}
           </div>
         )}
 

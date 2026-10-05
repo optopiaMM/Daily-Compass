@@ -17,20 +17,13 @@ import {
 } from "@shared/schema";
 import type { Answers } from "@shared/yearwise";
 import { commitYearwiseSession, type CommitResult } from "./yearwise-commit";
+import { saveWeeklyGoals, type WeeklyGoalInput } from "./weekly-goals";
+import {
+  ensureRecurringRows, freshStartFor, getReviewContext, goalsWithTrends, saveWeeklyReview,
+  type GoalWithTrend, type ReviewContext, type WeeklyReviewInput,
+} from "./weekly-review";
 
-// A weekly goal as the weekly view saves it. The link fields are set when the goal
-// came from a plan row (weekly_goal_templates), so it keeps that row's own
-// 90-day goal rather than defaulting to the "current" one.
-export interface WeeklyGoalInput {
-  category: string;
-  goalText: string;
-  sortOrder: number;
-  isTopFocus?: boolean;
-  ninetyDayGoalId?: number | null;
-  weeklyGoalTemplateId?: number | null;
-  source?: string;
-  habitId?: number | null;
-}
+export type { WeeklyGoalInput };
 
 export interface IStorage {
   getAnnualTarget(): Promise<AnnualTarget | undefined>;
@@ -73,6 +66,11 @@ export interface IStorage {
   createYearwiseSession(data: InsertYearwiseSession): Promise<YearwiseSession>;
   saveYearwiseAnswers(id: number, answers: Record<string, unknown>, planStart: string): Promise<YearwiseSession | undefined>;
   commitYearwiseSession(id: number, answers: Answers): Promise<CommitResult | undefined>;
+  getWeeklyReview(weekStartDate: string): Promise<ReviewContext>;
+  saveWeeklyReview(input: WeeklyReviewInput): Promise<{ createdGoalIds: number[] }>;
+  getGoalTrends(weekStartDate: string): Promise<GoalWithTrend[]>;
+  isFreshStart(today: string): Promise<boolean>;
+  ensureRecurringRows(weekStartDate: string): Promise<{ created: number }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -253,26 +251,10 @@ export class DatabaseStorage implements IStorage {
       .orderBy(weeklyGoals.category, weeklyGoals.sortOrder);
   }
 
+  // Updates the week's rows in place, so completed flags survive a re-save.
   async createWeeklyGoals(weekStartDate: string, goals: WeeklyGoalInput[]) {
-    await db.delete(weeklyGoals).where(eq(weeklyGoals.weekStartDate, weekStartDate));
-    if (goals.length > 0) {
-      const current = await this.getCurrentNinetyDayGoal();
-      const ninetyDayGoalId = current?.id ?? null;
-      await db.insert(weeklyGoals).values(
-        goals.map((g) => ({
-          weekStartDate,
-          category: g.category,
-          goalText: g.goalText,
-          sortOrder: g.sortOrder,
-          completed: false,
-          ninetyDayGoalId: g.ninetyDayGoalId ?? ninetyDayGoalId,
-          isTopFocus: g.isTopFocus ?? false,
-          weeklyGoalTemplateId: g.weeklyGoalTemplateId ?? null,
-          source: g.source ?? "manual",
-          habitId: g.habitId ?? null,
-        }))
-      );
-    }
+    const current = await this.getCurrentNinetyDayGoal();
+    await saveWeeklyGoals(db, weekStartDate, goals, current?.id ?? null);
   }
 
   async addWeeklyGoal(weekStartDate: string, category: string, goalText: string) {
@@ -422,6 +404,26 @@ export class DatabaseStorage implements IStorage {
 
   async commitYearwiseSession(id: number, answers: Answers) {
     return commitYearwiseSession(db, id, answers);
+  }
+
+  async getWeeklyReview(weekStartDate: string) {
+    return getReviewContext(db, weekStartDate);
+  }
+
+  async saveWeeklyReview(input: WeeklyReviewInput) {
+    return saveWeeklyReview(db, input);
+  }
+
+  async getGoalTrends(weekStartDate: string) {
+    return goalsWithTrends(db, weekStartDate);
+  }
+
+  async isFreshStart(today: string) {
+    return freshStartFor(db, today);
+  }
+
+  async ensureRecurringRows(weekStartDate: string) {
+    return ensureRecurringRows(db, weekStartDate);
   }
 }
 

@@ -137,9 +137,13 @@ export const habits = pgTable("habits", {
 export const weeklyReviews = pgTable("weekly_reviews", {
   id: serial("id").primaryKey(),
   weekStartDate: date("week_start_date").notNull().unique(),
+  // No longer written: the review's goal checklist replaced these two boxes.
+  // Kept so older reviews keep their text.
   doneNotes: text("done_notes"),
   slippedNotes: text("slipped_notes"),
   whyNotes: text("why_notes"),
+  // Optional note per goal ticked through in the review, keyed by weekly_goals.id.
+  goalNotes: jsonb("goal_notes").$type<Record<string, string>>().notNull().default({}),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -192,7 +196,7 @@ export const weeklyGoalTemplates = pgTable("weekly_goal_templates", {
   status: text("status").notNull().default("not_started"),
   notes: text("notes"),
   sortOrder: integer("sort_order").notNull().default(0),
-  source: text("source").notNull().default("csv"), // csv | yearwise | habit | review
+  source: text("source").notNull().default("csv"), // csv | yearwise | habit | review | manual (set in a weekly review)
   habitId: integer("habit_id").references(() => habits.id, { onDelete: "set null" }),
   ninetyDayGoalId: integer("ninety_day_goal_id").references(() => ninetyDayGoals.id, { onDelete: "set null" }),
   yearwiseSessionId: integer("yearwise_session_id").references(() => yearwiseSessions.id, { onDelete: "set null" }),
@@ -200,7 +204,7 @@ export const weeklyGoalTemplates = pgTable("weekly_goal_templates", {
 });
 
 export const insertWeeklyGoalTemplateSchema = createInsertSchema(weeklyGoalTemplates, {
-  source: z.enum(["csv", "yearwise", "habit", "review"]).optional(),
+  source: z.enum(["csv", "yearwise", "habit", "review", "manual"]).optional(),
 }).omit({ id: true });
 export type WeeklyGoalTemplate = typeof weeklyGoalTemplates.$inferSelect;
 export type InsertWeeklyGoalTemplate = z.infer<typeof insertWeeklyGoalTemplateSchema>;

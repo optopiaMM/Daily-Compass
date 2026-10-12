@@ -14,10 +14,13 @@ import {
   type OauthToken, type InsertOauthToken,
   type CalendarFeed,
   type YearwiseSession, type InsertYearwiseSession,
+  type WaterLog,
 } from "@shared/schema";
 import type { Answers } from "@shared/yearwise";
 import { commitYearwiseSession, type CommitResult } from "./yearwise-commit";
 import { saveWeeklyGoals, type WeeklyGoalInput } from "./weekly-goals";
+import { getHydrationDay, getHydrationWeek, getWaterTarget, logWater, setWaterTarget, undoLastWaterLog } from "./hydration";
+import type { HydrationDay, HydrationWeek } from "@shared/hydration";
 import {
   ensureRecurringRows, freshStartFor, getReviewContext, goalsWithTrends, saveWeeklyReview,
   type GoalWithTrend, type ReviewContext, type WeeklyReviewInput,
@@ -71,6 +74,12 @@ export interface IStorage {
   getGoalTrends(weekStartDate: string): Promise<GoalWithTrend[]>;
   isFreshStart(today: string): Promise<boolean>;
   ensureRecurringRows(weekStartDate: string): Promise<{ created: number }>;
+  getHydrationDay(date: string): Promise<HydrationDay>;
+  getHydrationWeek(weekStart: string): Promise<HydrationWeek>;
+  logWater(date: string, amountMl: number): Promise<HydrationDay>;
+  undoLastWaterLog(date: string): Promise<HydrationDay & { undone: WaterLog | null }>;
+  getWaterTarget(): Promise<number>;
+  setWaterTarget(targetMl: number): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -424,6 +433,30 @@ export class DatabaseStorage implements IStorage {
 
   async ensureRecurringRows(weekStartDate: string) {
     return ensureRecurringRows(db, weekStartDate);
+  }
+
+  async getHydrationDay(date: string) {
+    return getHydrationDay(db, date);
+  }
+
+  async getHydrationWeek(weekStart: string) {
+    return getHydrationWeek(db, weekStart);
+  }
+
+  async logWater(date: string, amountMl: number) {
+    return logWater(db, date, amountMl);
+  }
+
+  async undoLastWaterLog(date: string) {
+    return undoLastWaterLog(db, date);
+  }
+
+  async getWaterTarget() {
+    return getWaterTarget(db);
+  }
+
+  async setWaterTarget(targetMl: number) {
+    return setWaterTarget(db, targetMl);
   }
 }
 

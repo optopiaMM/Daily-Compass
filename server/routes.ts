@@ -17,6 +17,7 @@ import { runPayslipAgent } from "./payslip";
 import { z } from "zod";
 import { iso, planStart } from "@shared/yearwise";
 import { addDaysISO, mondayOf, reviewBody } from "@shared/weekly-review";
+import { insertHydrationSettingsSchema, insertWaterLogSchema } from "@shared/schema";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
@@ -252,6 +253,54 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const thisWeek = await storage.ensureRecurringRows(week);
       const nextWeek = await storage.ensureRecurringRows(addDaysISO(week, 7));
       res.json({ created: thisWeek.created + nextWeek.created });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Hydration --------------------------------------------------------------
+  // The client passes its own date, so "today" is the user's day, not the server's.
+  // Registered before /:date so "target" isn't read as a date.
+  app.get("/api/hydration/target", async (_req, res) => {
+    try {
+      res.json({ targetMl: await storage.getWaterTarget() });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.put("/api/hydration/target", async (req, res) => {
+    try {
+      const parsed = insertHydrationSettingsSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Target must be a whole number of ml from 250 to 10000" });
+      res.json({ targetMl: await storage.setWaterTarget(parsed.data.targetMl) });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Any date in the week works; it's moved back to that week's Monday.
+  app.get("/api/hydration/week/:weekStart", async (req, res) => {
+    try {
+      if (!isoDate.safeParse(req.params.weekStart).success) return res.status(400).json({ message: "Use YYYY-MM-DD" });
+      res.json(await storage.getHydrationWeek(mondayOf(req.params.weekStart)));
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.get("/api/hydration/:date", async (req, res) => {
+    try {
+      if (!isoDate.safeParse(req.params.date).success) return res.status(400).json({ message: "Use YYYY-MM-DD" });
+      res.json(await storage.getHydrationDay(req.params.date));
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.post("/api/hydration/log", async (req, res) => {
+    try {
+      const parsed = insertWaterLogSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid amount" });
+      res.json(await storage.logWater(parsed.data.date, parsed.data.amountMl));
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.post("/api/hydration/undo", async (req, res) => {
+    try {
+      const parsed = z.object({ date: isoDate }).safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Missing or invalid 'date'" });
+      res.json(await storage.undoLastWaterLog(parsed.data.date));
     } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 

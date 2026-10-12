@@ -12,6 +12,7 @@ import type { ScorePoint } from "@shared/weekly-review";
 import { formatDateNice, getDayOfWeek, getWeekStartDate } from "@/lib/dateUtils";
 import OutlookConnect from "@/components/outlook-connect";
 import Sparkline from "@/components/sparkline";
+import HydrationBar from "@/components/hydration-bar";
 
 interface DayViewProps { date: string; }
 
@@ -217,6 +218,8 @@ export default function DayView({ date }: DayViewProps) {
       </div>
 
       <div className="max-w-lg mx-auto px-4 py-6 space-y-6">
+        <HydrationBar date={date} />
+
         {fresh?.freshStart && (
           <div className="bg-success/10 border border-success/30 rounded-lg p-4 flex items-start gap-3" data-testid="banner-fresh-start">
             <Sunrise className="w-5 h-5 text-success mt-0.5 shrink-0" />

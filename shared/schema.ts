@@ -337,6 +337,35 @@ export type InsertWeeklyReview = z.infer<typeof insertWeeklyReviewSchema>;
 export type WeeklyReviewScore = typeof weeklyReviewScores.$inferSelect;
 export type InsertWeeklyReviewScore = z.infer<typeof insertWeeklyReviewScoreSchema>;
 
+// One row per glass logged. Keyed by the user's local date, so each day's total
+// starts from zero without any reset job.
+export const waterLogs = pgTable("water_logs", {
+  id: serial("id").primaryKey(),
+  date: date("date").notNull(),
+  amountMl: integer("amount_ml").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// A single row (id 1) holding the daily target. Until it's first saved, the
+// target is DEFAULT_WATER_TARGET_ML from shared/hydration.ts.
+export const hydrationSettings = pgTable("hydration_settings", {
+  id: serial("id").primaryKey(),
+  targetMl: integer("target_ml").notNull().default(2000),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertWaterLogSchema = createInsertSchema(waterLogs, {
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD"),
+  amountMl: z.number().int().min(1).max(5000),
+}).omit({ id: true, createdAt: true });
+export const insertHydrationSettingsSchema = createInsertSchema(hydrationSettings, {
+  targetMl: z.number().int().min(250).max(10000),
+}).omit({ id: true, updatedAt: true });
+export type WaterLog = typeof waterLogs.$inferSelect;
+export type InsertWaterLog = z.infer<typeof insertWaterLogSchema>;
+export type HydrationSettings = typeof hydrationSettings.$inferSelect;
+export type InsertHydrationSettings = z.infer<typeof insertHydrationSettingsSchema>;
+
 export type StandingOrder = typeof standingOrders.$inferSelect;
 export type PayslipRun = typeof payslipRuns.$inferSelect;
 export type PayslipAction = typeof payslipActions.$inferSelect;

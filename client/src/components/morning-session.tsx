@@ -1,5 +1,6 @@
 import { useState } from "react";
 import GratitudeStep from "@/components/steps/gratitude-step";
+import WeeklyLookbackStep from "@/components/steps/weekly-lookback-step";
 import LivingPowerfullyStep from "@/components/steps/living-powerfully-step";
 import WeeklyGoalsStep from "@/components/steps/weekly-goals-step";
 import PreviousDayReviewStep from "@/components/steps/previous-day-review-step";
@@ -8,18 +9,18 @@ import { Progress } from "@/components/ui/progress";
 
 interface MorningSessionProps { date: string; isMonday: boolean; onComplete: () => void; }
 
-type MondayStep = "gratitude" | "livingPowerfully" | "weeklyGoals" | "previousDayReview" | "dailyPlanning";
+type MondayStep = "gratitude" | "lookback" | "livingPowerfully" | "weeklyGoals" | "previousDayReview" | "dailyPlanning";
 type RegularStep = "gratitude" | "previousDayReview" | "dailyPlanning";
 
 export default function MorningSession({ date, isMonday, onComplete }: MorningSessionProps) {
-  const mondaySteps: MondayStep[] = ["gratitude", "livingPowerfully", "weeklyGoals", "previousDayReview", "dailyPlanning"];
+  const mondaySteps: MondayStep[] = ["gratitude", "lookback", "livingPowerfully", "weeklyGoals", "previousDayReview", "dailyPlanning"];
   const regularSteps: RegularStep[] = ["gratitude", "previousDayReview", "dailyPlanning"];
   const steps = isMonday ? mondaySteps : regularSteps;
   const [stepIndex, setStepIndex] = useState(0);
   const currentStep = steps[stepIndex];
 
   const stepLabels: Record<string, string> = {
-    gratitude: "Gratitude", livingPowerfully: "Living Powerfully",
+    gratitude: "Gratitude", lookback: "Last Week", livingPowerfully: "Living Powerfully",
     weeklyGoals: "Weekly Goals", previousDayReview: "Previous Day Review", dailyPlanning: "Daily Planning",
   };
 
@@ -43,6 +44,7 @@ export default function MorningSession({ date, isMonday, onComplete }: MorningSe
       <div className="flex-1 px-4 py-6">
         <div className="max-w-lg mx-auto">
           {currentStep === "gratitude" && <GratitudeStep date={date} onNext={nextStep} />}
+          {currentStep === "lookback" && <WeeklyLookbackStep date={date} onNext={nextStep} />}
           {currentStep === "livingPowerfully" && <LivingPowerfullyStep date={date} onNext={nextStep} />}
           {currentStep === "weeklyGoals" && <WeeklyGoalsStep date={date} onNext={nextStep} />}
           {currentStep === "previousDayReview" && <PreviousDayReviewStep date={date} onNext={nextStep} />}

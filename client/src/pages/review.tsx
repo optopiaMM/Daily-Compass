@@ -8,13 +8,14 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Sparkline from "@/components/sparkline";
+import HydrationWeekSection from "@/components/hydration-week";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { formatDateNice, getWeekStartDate } from "@/lib/dateUtils";
 import { SIX_P_CATEGORIES, type IfThenPlan, type NinetyDayGoal, type WeeklyGoal, type WeeklyReview } from "@shared/schema";
 import { addDaysISO, type ScorePoint } from "@shared/weekly-review";
-import { DAYS_IN_WEEK, type HydrationWeek } from "@shared/hydration";
+import type { HydrationWeek } from "@shared/hydration";
 
 // What GET /api/weekly-review/:week returns.
 type GoalWithTrend = NinetyDayGoal & { plans: IfThenPlan[]; history: ScorePoint[] };
@@ -243,40 +244,7 @@ export default function ReviewPage() {
               ))}
             </section>
 
-            {water && (
-              <section className="space-y-3" data-testid="review-hydration">
-                <div>
-                  <h2 className="font-serif text-lg">Water</h2>
-                  <p className="text-xs text-muted-foreground">Against your current target of {water.targetMl} ml a day.</p>
-                </div>
-                <div className="rounded-lg border bg-card p-4 space-y-3">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <p className="font-medium leading-snug" data-testid="text-review-hydration-hit">
-                      {water.daysHit} of {DAYS_IN_WEEK} days hit target
-                    </p>
-                    <p className="text-sm text-muted-foreground tabular-nums" data-testid="text-review-hydration-average">
-                      {water.averageMl} ml a day on average
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-7 gap-1">
-                    {water.days.map((d) => (
-                      <div
-                        key={d.date}
-                        className={cn(
-                          "rounded border py-1 text-center text-[10px] tabular-nums",
-                          d.hit ? "bg-success text-success-foreground border-success" : "bg-background text-muted-foreground",
-                        )}
-                        title={`${d.totalMl} ml`}
-                        data-testid={`review-hydration-day-${d.date}`}
-                      >
-                        <span className="block font-medium">{new Date(d.date + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short" })}</span>
-                        {d.totalMl}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </section>
-            )}
+            {water && <HydrationWeekSection water={water} />}
 
             <section className="space-y-3">
               <div>

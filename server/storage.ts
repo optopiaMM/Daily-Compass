@@ -14,11 +14,14 @@ import {
   type OauthToken, type InsertOauthToken,
   type CalendarFeed,
   type YearwiseSession, type InsertYearwiseSession,
-  type WaterLog,
+  type WaterLog, type DailyItemTags,
 } from "@shared/schema";
 import type { Answers } from "@shared/yearwise";
 import { commitYearwiseSession, type CommitResult } from "./yearwise-commit";
-import { saveWeeklyGoals, type WeeklyGoalInput } from "./weekly-goals";
+import { addWeeklyGoal, saveWeeklyGoals, type WeeklyGoalInput } from "./weekly-goals";
+import { addDailyItem, saveDailyPlan, setDailyItemTags } from "./daily-items";
+import { getWeeklyLookback } from "./weekly-lookback";
+import type { WeeklyLookback } from "@shared/weekly-lookback";
 import { getHydrationDay, getHydrationWeek, getWaterTarget, logWater, setWaterTarget, undoLastWaterLog } from "./hydration";
 import type { HydrationDay, HydrationWeek } from "@shared/hydration";
 import {
@@ -57,6 +60,7 @@ export interface IStorage {
   getDailyItems(date: string): Promise<DailyItem[]>;
   createDailyItems(date: string, items: InsertDailyItem[]): Promise<void>;
   addDailyItem(item: InsertDailyItem): Promise<DailyItem>;
+  setDailyItemTags(itemId: number, tags: DailyItemTags): Promise<DailyItem | undefined>;
   toggleDailyItem(itemId: number): Promise<DailyItem | undefined>;
   getItemsForReview(currentDate: string): Promise<{ items: DailyItem[]; fromDate: string } | null>;
   getCarriedItems(date: string): Promise<DailyItem[]>;
@@ -80,6 +84,7 @@ export interface IStorage {
   undoLastWaterLog(date: string): Promise<HydrationDay & { undone: WaterLog | null }>;
   getWaterTarget(): Promise<number>;
   setWaterTarget(targetMl: number): Promise<number>;
+  getWeeklyLookback(weekStart: string): Promise<WeeklyLookback>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -262,25 +267,11 @@ export class DatabaseStorage implements IStorage {
 
   // Updates the week's rows in place, so completed flags survive a re-save.
   async createWeeklyGoals(weekStartDate: string, goals: WeeklyGoalInput[]) {
-    const current = await this.getCurrentNinetyDayGoal();
-    await saveWeeklyGoals(db, weekStartDate, goals, current?.id ?? null);
+    await saveWeeklyGoals(db, weekStartDate, goals);
   }
 
   async addWeeklyGoal(weekStartDate: string, category: string, goalText: string) {
-    const existing = await db.select().from(weeklyGoals)
-      .where(and(eq(weeklyGoals.weekStartDate, weekStartDate), eq(weeklyGoals.category, category)));
-    const current = await this.getCurrentNinetyDayGoal();
-    const [result] = await db.insert(weeklyGoals)
-      .values({
-        weekStartDate,
-        category,
-        goalText,
-        sortOrder: existing.length,
-        completed: false,
-        ninetyDayGoalId: current?.id ?? null,
-      })
-      .returning();
-    return result;
+    return addWeeklyGoal(db, weekStartDate, category, goalText);
   }
 
   async getWeeklyGoalCountByCategory(weekStartDate: string, category: string) {
@@ -302,15 +293,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createDailyItems(date: string, items: InsertDailyItem[]) {
-    await db.delete(dailyItems).where(eq(dailyItems.date, date));
-    if (items.length > 0) {
-      await db.insert(dailyItems).values(items.map((item) => ({ ...item, date })));
-    }
+    await saveDailyPlan(db, date, items);
   }
 
   async addDailyItem(item: InsertDailyItem) {
-    const [result] = await db.insert(dailyItems).values(item).returning();
-    return result;
+    return addDailyItem(db, item);
+  }
+
+  async setDailyItemTags(itemId: number, tags: DailyItemTags) {
+    return setDailyItemTags(db, itemId, tags);
   }
 
   async toggleDailyItem(itemId: number) {
@@ -366,6 +357,7 @@ export class DatabaseStorage implements IStorage {
           await db.insert(dailyItems).values({
             date: currentDate, type: item.type, text: item.text, rank: item.rank,
             completed: false, linkedWeeklyGoalId: item.linkedWeeklyGoalId, scheduledReviewDate: null,
+            ninetyDayGoalId: item.ninetyDayGoalId, pillar: item.pillar,
           });
         }
       }
@@ -457,6 +449,10 @@ export class DatabaseStorage implements IStorage {
 
   async setWaterTarget(targetMl: number) {
     return setWaterTarget(db, targetMl);
+  }
+
+  async getWeeklyLookback(weekStart: string) {
+    return getWeeklyLookback(db, weekStart);
   }
 }
 

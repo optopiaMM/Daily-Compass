@@ -1,29 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { History } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { formatShortDate, getPreviousWeekStartDate } from "@/lib/dateUtils";
 import HydrationWeekSection from "@/components/hydration-week";
-import type { Progress as ProgressCount, WeeklyLookback } from "@shared/weekly-lookback";
+import ProgressRow from "@/components/progress-row";
+import type { WeeklyLookback } from "@shared/weekly-lookback";
 import { addDaysISO } from "@shared/weekly-review";
 
 interface WeeklyLookbackStepProps { date: string; onNext: () => void; }
-
-// A title, "X/Y (Z%)", and a bar that fills green with the percentage. The track
-// is neutral so 0% shows no green at all.
-function ProgressRow({ title, count, testId }: { title: string; count: ProgressCount; testId: string }) {
-  return (
-    <div className="space-y-1.5" data-testid={testId}>
-      <div className="flex items-baseline justify-between gap-3">
-        <p className="text-sm font-medium leading-snug min-w-0">{title}</p>
-        <p className="text-xs text-muted-foreground tabular-nums shrink-0" data-testid={`text-${testId}`}>
-          {count.done}/{count.total} ({count.pct}%)
-        </p>
-      </div>
-      <Progress value={count.pct} className="h-2.5 bg-muted" aria-label={`${title}: ${count.done} of ${count.total} done`} />
-    </div>
-  );
-}
 
 // Monday's look back at last week, before setting this week's goals. Read-only.
 export default function WeeklyLookbackStep({ date, onNext }: WeeklyLookbackStepProps) {

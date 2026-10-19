@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, X, Star, ListChecks, ArrowRight } from "lucide-react";
-import type { WeeklyGoal, DailyItem } from "@shared/schema";
+import type { WeeklyGoal, DailyItem, DailyItemTags, NinetyDayGoal } from "@shared/schema";
 import { getWeekStartDate } from "@/lib/dateUtils";
+import { NO_TAGS, TagToggle, TaskTagFields, hasTags, tagLabel } from "@/components/task-tags";
 
 interface DailyPlanningStepProps { date: string; onComplete: () => void; }
 
@@ -18,6 +19,9 @@ interface PoolItem {
   type: TempType;
   rank: number | null;
   linkedWeeklyGoalId: number | null;
+  // Look-back tags. Left null for a pulled weekly goal: the server copies its tags.
+  pillar: string | null;
+  ninetyDayGoalId: number | null;
 }
 
 export default function DailyPlanningStep({ date, onComplete }: DailyPlanningStepProps) {
@@ -26,11 +30,14 @@ export default function DailyPlanningStep({ date, onComplete }: DailyPlanningSte
 
   const { data: weeklyGoals } = useQuery<WeeklyGoal[]>({ queryKey: ["/api/weekly-goals", weekStartDate] });
   const { data: carriedItems } = useQuery<DailyItem[]>({ queryKey: ["/api/carried-items", date] });
+  const { data: activeGoals } = useQuery<NinetyDayGoal[]>({ queryKey: ["/api/ninety-day-goals/trends", date] });
 
   const [stage, setStage] = useState<"pool" | "assign">("pool");
   const [pool, setPool] = useState<PoolItem[]>([]);
   const [pulledGoalIds, setPulledGoalIds] = useState<Set<number>>(new Set());
   const [newText, setNewText] = useState("");
+  const [newTags, setNewTags] = useState<DailyItemTags>(NO_TAGS);
+  const [newTagsOpen, setNewTagsOpen] = useState(false);
   const [tierPickerFor, setTierPickerFor] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
@@ -43,6 +50,8 @@ export default function DailyPlanningStep({ date, onComplete }: DailyPlanningSte
         type: "todo",
         rank: null,
         linkedWeeklyGoalId: it.linkedWeeklyGoalId,
+        pillar: it.pillar,
+        ninetyDayGoalId: it.ninetyDayGoalId,
       }));
       setPool(seeded);
     }
@@ -52,13 +61,15 @@ export default function DailyPlanningStep({ date, onComplete }: DailyPlanningSte
   function addFromInput() {
     const text = newText.trim();
     if (!text) return;
-    setPool((p) => [...p, { tempId: `n-${Date.now()}`, text, type: "todo", rank: null, linkedWeeklyGoalId: null }]);
+    setPool((p) => [...p, { tempId: `n-${Date.now()}`, text, type: "todo", rank: null, linkedWeeklyGoalId: null, ...newTags }]);
     setNewText("");
+    setNewTags(NO_TAGS);
+    setNewTagsOpen(false);
   }
 
   function pullWeeklyGoal(g: WeeklyGoal) {
     if (pulledGoalIds.has(g.id)) return;
-    setPool((p) => [...p, { tempId: `wg-${g.id}`, text: g.goalText, type: "todo", rank: null, linkedWeeklyGoalId: g.id }]);
+    setPool((p) => [...p, { tempId: `wg-${g.id}`, text: g.goalText, type: "todo", rank: null, linkedWeeklyGoalId: g.id, ...NO_TAGS }]);
     setPulledGoalIds((s) => new Set(s).add(g.id));
   }
 
@@ -101,6 +112,8 @@ export default function DailyPlanningStep({ date, onComplete }: DailyPlanningSte
         text: it.text,
         rank: it.rank,
         linkedWeeklyGoalId: it.linkedWeeklyGoalId,
+        pillar: it.pillar,
+        ninetyDayGoalId: it.ninetyDayGoalId,
       }));
       await apiRequest("POST", "/api/daily-plan", { date, items });
       await apiRequest("POST", "/api/morning-session/complete", { date });
@@ -146,7 +159,10 @@ export default function DailyPlanningStep({ date, onComplete }: DailyPlanningSte
           {pool.length === 0 && <p className="text-xs text-muted-foreground italic">Nothing yet.</p>}
           {pool.map((it) => (
             <div key={it.tempId} className="flex items-center gap-2 bg-card rounded p-2 border">
-              <span className="flex-1 text-sm">{it.text}</span>
+              <span className="flex-1 text-sm">
+                {it.text}
+                {hasTags(it) && <span className="block text-[11px] text-muted-foreground">{tagLabel(it, activeGoals)}</span>}
+              </span>
               <button onClick={() => removeFromPool(it.tempId)} className="p-1 text-muted-foreground hover:text-destructive">
                 <X className="w-4 h-4" />
               </button>
@@ -154,17 +170,21 @@ export default function DailyPlanningStep({ date, onComplete }: DailyPlanningSte
           ))}
         </div>
 
-        <div className="flex gap-2">
-          <Input
-            placeholder="Add a to-do..."
-            value={newText}
-            onChange={(e) => setNewText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addFromInput(); } }}
-            data-testid="input-pool-add"
-          />
-          <Button variant="outline" size="icon" onClick={addFromInput} disabled={!newText.trim()} data-testid="button-pool-add">
-            <Plus className="w-4 h-4" />
-          </Button>
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <Input
+              placeholder="Add a to-do..."
+              value={newText}
+              onChange={(e) => setNewText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addFromInput(); } }}
+              data-testid="input-pool-add"
+            />
+            <TagToggle open={newTagsOpen} tagged={hasTags(newTags)} onClick={() => setNewTagsOpen(!newTagsOpen)} />
+            <Button variant="outline" size="icon" onClick={addFromInput} disabled={!newText.trim()} data-testid="button-pool-add">
+              <Plus className="w-4 h-4" />
+            </Button>
+          </div>
+          {newTagsOpen && <TaskTagFields value={newTags} goals={activeGoals} onChange={setNewTags} />}
         </div>
 
         <Button

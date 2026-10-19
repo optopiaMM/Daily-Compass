@@ -17,7 +17,7 @@ import { runPayslipAgent } from "./payslip";
 import { z } from "zod";
 import { iso, planStart } from "@shared/yearwise";
 import { addDaysISO, mondayOf, reviewBody } from "@shared/weekly-review";
-import { insertHydrationSettingsSchema, insertWaterLogSchema } from "@shared/schema";
+import { dailyItemTagsSchema, insertDailyItemSchema, insertHydrationSettingsSchema, insertWaterLogSchema } from "@shared/schema";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
@@ -253,6 +253,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const thisWeek = await storage.ensureRecurringRows(week);
       const nextWeek = await storage.ensureRecurringRows(addDaysISO(week, 7));
       res.json({ created: thisWeek.created + nextWeek.created });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Weekly look-back (Monday morning step). Any date in the week works.
+  app.get("/api/weekly-lookback/:weekStart", async (req, res) => {
+    try {
+      if (!isoDate.safeParse(req.params.weekStart).success) return res.status(400).json({ message: "Use YYYY-MM-DD" });
+      res.json(await storage.getWeeklyLookback(mondayOf(req.params.weekStart)));
     } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 
@@ -523,6 +531,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       await storage.createDailyItems(date, items.map((item: any) => ({
         date, type: item.type, text: item.text, rank: item.rank ?? null,
         completed: false, linkedWeeklyGoalId: item.linkedWeeklyGoalId ?? null, scheduledReviewDate: null,
+        pillar: item.pillar ?? null, ninetyDayGoalId: item.ninetyDayGoalId ?? null,
       })));
       res.json({ success: true });
     } catch (error: any) { res.status(500).json({ message: error.message }); }
@@ -536,7 +545,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.post("/api/daily-items", async (req, res) => {
     try {
-      res.json(await storage.addDailyItem(req.body));
+      const parsed = insertDailyItemSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid item" });
+      res.json(await storage.addDailyItem(parsed.data));
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Tag (or re-tag, or clear) a task's pillar and 90-day goal for the look-back.
+  app.patch("/api/daily-items/:id/tags", async (req, res) => {
+    try {
+      const parsed = dailyItemTagsSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid tags" });
+      const item = await storage.setDailyItemTags(parseInt(req.params.id), parsed.data);
+      if (!item) return res.status(404).json({ message: "Item not found" });
+      res.json(item);
     } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 

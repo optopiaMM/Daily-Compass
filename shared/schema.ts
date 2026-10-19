@@ -234,6 +234,10 @@ export const dailyItems = pgTable("daily_items", {
   linkedWeeklyGoalId: integer("linked_weekly_goal_id"),
   scheduledReviewDate: date("scheduled_review_date"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  // Optional tags for the weekly look-back. Copied from the linked weekly goal when
+  // the task is created from one; otherwise set by hand, or left null.
+  ninetyDayGoalId: integer("ninety_day_goal_id"),
+  pillar: text("pillar"), // one of SIX_P_CATEGORIES
 });
 
 export const dailyQuotes = pgTable("daily_quotes", {
@@ -257,7 +261,10 @@ export const insertLivingPowerfullySchema = createInsertSchema(livingPowerfullyS
 export const insertWeeklyGoalSchema = createInsertSchema(weeklyGoals, {
   source: z.enum(["manual", "yearwise", "habit", "review"]).optional(),
 }).omit({ id: true });
-export const insertDailyItemSchema = createInsertSchema(dailyItems).omit({ id: true, createdAt: true });
+export const insertDailyItemSchema = createInsertSchema(dailyItems, {
+  // A refine, not z.enum, because SIX_P_CATEGORIES is declared further down.
+  pillar: z.string().refine((p) => (SIX_P_CATEGORIES as readonly string[]).includes(p), "Not one of the Six P's").nullable().optional(),
+}).omit({ id: true, createdAt: true });
 export const insertDailyQuoteSchema = createInsertSchema(dailyQuotes).omit({ id: true });
 
 export type MorningSession = typeof morningSessions.$inferSelect;
@@ -400,3 +407,10 @@ export const BD_TRACKS = [
 export type BdTrack = (typeof BD_TRACKS)[number];
 export type LivingPowerfullyArea =(typeof LIVING_POWERFULLY_AREAS)[number];
 export type SixPCategory = (typeof SIX_P_CATEGORIES)[number];
+
+// PATCH /api/daily-items/:id/tags: both tags at once, null to clear either.
+export const dailyItemTagsSchema = z.object({
+  pillar: z.enum(SIX_P_CATEGORIES).nullable(),
+  ninetyDayGoalId: z.number().int().nullable(),
+});
+export type DailyItemTags = z.infer<typeof dailyItemTagsSchema>;

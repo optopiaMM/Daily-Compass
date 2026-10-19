@@ -7,12 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { Check, ChevronDown, ChevronUp, Plus, Star, Sparkles, ExternalLink, ClipboardCheck, Sunrise } from "lucide-react";
-import type { DailyItem, NinetyDayGoal, WeeklyGoal } from "@shared/schema";
+import type { DailyItem, DailyItemTags, NinetyDayGoal, WeeklyGoal } from "@shared/schema";
 import type { ScorePoint } from "@shared/weekly-review";
 import { formatDateNice, getDayOfWeek, getWeekStartDate } from "@/lib/dateUtils";
 import OutlookConnect from "@/components/outlook-connect";
 import Sparkline from "@/components/sparkline";
 import HydrationBar from "@/components/hydration-bar";
+import { NO_TAGS, TagToggle, TaskTagControl, TaskTagFields, hasTags } from "@/components/task-tags";
 
 interface DayViewProps { date: string; }
 
@@ -28,6 +29,8 @@ export default function DayView({ date }: DayViewProps) {
 
   const [goalsOpen, setGoalsOpen] = useState(false);
   const [newTodo, setNewTodo] = useState("");
+  const [newTags, setNewTags] = useState<DailyItemTags>(NO_TAGS);
+  const [newTagsOpen, setNewTagsOpen] = useState(false);
 
   const toggle = useMutation({
     mutationFn: async (id: number) => apiRequest("PATCH", `/api/daily-items/${id}/toggle`),
@@ -41,11 +44,13 @@ export default function DayView({ date }: DayViewProps) {
   const addTodo = useMutation({
     mutationFn: async (text: string) => {
       await apiRequest("POST", "/api/daily-items", {
-        date, type: "todo", text, rank: null, completed: false, linkedWeeklyGoalId: null, scheduledReviewDate: null,
+        date, type: "todo", text, rank: null, completed: false, linkedWeeklyGoalId: null, scheduledReviewDate: null, ...newTags,
       });
     },
     onSuccess: () => {
       setNewTodo("");
+      setNewTags(NO_TAGS);
+      setNewTagsOpen(false);
       queryClient.invalidateQueries({ queryKey: ["/api/daily-items", date] });
     },
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -302,14 +307,17 @@ export default function DayView({ date }: DayViewProps) {
               <Star className="w-4 h-4 text-success" />
               <h3 className="font-serif text-base">Main Goal</h3>
             </div>
-            <button
-              onClick={() => toggle.mutate(mainGoal.id)}
-              className={`w-full text-left bg-success/10 border border-success/30 rounded-lg p-4 flex items-start gap-3 hover-elevate ${mainGoal.completed ? "opacity-60" : ""}`}
-              data-testid={`button-toggle-main-${mainGoal.id}`}
-            >
-              <Check className={`w-5 h-5 mt-0.5 ${mainGoal.completed ? "text-success" : "text-muted-foreground/30"}`} />
-              <span className={`flex-1 ${mainGoal.completed ? "line-through" : ""}`}>{mainGoal.text}</span>
-            </button>
+            <div className="space-y-1">
+              <button
+                onClick={() => toggle.mutate(mainGoal.id)}
+                className={`w-full text-left bg-success/10 border border-success/30 rounded-lg p-4 flex items-start gap-3 hover-elevate ${mainGoal.completed ? "opacity-60" : ""}`}
+                data-testid={`button-toggle-main-${mainGoal.id}`}
+              >
+                <Check className={`w-5 h-5 mt-0.5 ${mainGoal.completed ? "text-success" : "text-muted-foreground/30"}`} />
+                <span className={`flex-1 ${mainGoal.completed ? "line-through" : ""}`}>{mainGoal.text}</span>
+              </button>
+              <TaskTagControl item={mainGoal} goals={goalTrends} date={date} />
+            </div>
           </div>
         )}
 
@@ -318,16 +326,18 @@ export default function DayView({ date }: DayViewProps) {
             <h3 className="font-serif text-base">Priorities</h3>
             <div className="space-y-2">
               {priorities.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => toggle.mutate(p.id)}
-                  className={`w-full text-left bg-card border rounded-lg p-3 flex items-start gap-3 hover-elevate ${p.completed ? "opacity-60" : ""}`}
-                  data-testid={`button-toggle-priority-${p.id}`}
-                >
-                  <Check className={`w-4 h-4 mt-0.5 ${p.completed ? "text-success" : "text-muted-foreground/30"}`} />
-                  <span className="text-xs text-muted-foreground uppercase tracking-wide">P{p.rank ?? ""}</span>
-                  <span className={`flex-1 text-sm ${p.completed ? "line-through" : ""}`}>{p.text}</span>
-                </button>
+                <div key={p.id} className="space-y-1">
+                  <button
+                    onClick={() => toggle.mutate(p.id)}
+                    className={`w-full text-left bg-card border rounded-lg p-3 flex items-start gap-3 hover-elevate ${p.completed ? "opacity-60" : ""}`}
+                    data-testid={`button-toggle-priority-${p.id}`}
+                  >
+                    <Check className={`w-4 h-4 mt-0.5 ${p.completed ? "text-success" : "text-muted-foreground/30"}`} />
+                    <span className="text-xs text-muted-foreground uppercase tracking-wide">P{p.rank ?? ""}</span>
+                    <span className={`flex-1 text-sm ${p.completed ? "line-through" : ""}`}>{p.text}</span>
+                  </button>
+                  <TaskTagControl item={p} goals={goalTrends} date={date} />
+                </div>
               ))}
             </div>
           </div>
@@ -338,15 +348,17 @@ export default function DayView({ date }: DayViewProps) {
           <div className="space-y-2">
             {todos.length === 0 && <p className="text-xs text-muted-foreground italic">Nothing on the list.</p>}
             {todos.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => toggle.mutate(t.id)}
-                className={`w-full text-left bg-card border rounded-lg p-3 flex items-start gap-3 hover-elevate ${t.completed ? "opacity-60" : ""}`}
-                data-testid={`button-toggle-todo-${t.id}`}
-              >
-                <Check className={`w-4 h-4 mt-0.5 ${t.completed ? "text-success" : "text-muted-foreground/30"}`} />
-                <span className={`flex-1 text-sm ${t.completed ? "line-through" : ""}`}>{t.text}</span>
-              </button>
+              <div key={t.id} className="space-y-1">
+                <button
+                  onClick={() => toggle.mutate(t.id)}
+                  className={`w-full text-left bg-card border rounded-lg p-3 flex items-start gap-3 hover-elevate ${t.completed ? "opacity-60" : ""}`}
+                  data-testid={`button-toggle-todo-${t.id}`}
+                >
+                  <Check className={`w-4 h-4 mt-0.5 ${t.completed ? "text-success" : "text-muted-foreground/30"}`} />
+                  <span className={`flex-1 text-sm ${t.completed ? "line-through" : ""}`}>{t.text}</span>
+                </button>
+                <TaskTagControl item={t} goals={goalTrends} date={date} />
+              </div>
             ))}
           </div>
 
@@ -358,10 +370,12 @@ export default function DayView({ date }: DayViewProps) {
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (newTodo.trim()) addTodo.mutate(newTodo.trim()); } }}
               data-testid="input-day-add"
             />
+            <TagToggle open={newTagsOpen} tagged={hasTags(newTags)} onClick={() => setNewTagsOpen(!newTagsOpen)} />
             <Button variant="outline" size="icon" disabled={!newTodo.trim() || addTodo.isPending} onClick={() => addTodo.mutate(newTodo.trim())} data-testid="button-day-add">
               <Plus className="w-4 h-4" />
             </Button>
           </div>
+          {newTagsOpen && <TaskTagFields value={newTags} goals={goalTrends} onChange={setNewTags} />}
         </div>
       </div>
     </div>

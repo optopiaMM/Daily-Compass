@@ -87,7 +87,10 @@ export function TaskTagControl({ item, goals, date }: { item: DailyItem; goals: 
   const [tags, setTags] = useState<DailyItemTags>(NO_TAGS);
   const save = useMutation({
     mutationFn: async (next: DailyItemTags) => apiRequest("PATCH", `/api/daily-items/${item.id}/tags`, next),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/daily-items", date] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/daily-items", date] });
+      queryClient.invalidateQueries({ queryKey: ["/api/weekly-lookback"] }); // goal progress on the home card
+    },
     onError: (err: Error) => toast({ title: "Couldn't save the tags", description: err.message, variant: "destructive" }),
   });
   const label = tagLabel(open ? tags : item, goals);

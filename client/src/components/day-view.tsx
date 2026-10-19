@@ -9,9 +9,9 @@ import { useToast } from "@/hooks/use-toast";
 import { Check, ChevronDown, ChevronUp, Plus, Star, Sparkles, ExternalLink, ClipboardCheck, Sunrise } from "lucide-react";
 import type { DailyItem, DailyItemTags, NinetyDayGoal, WeeklyGoal } from "@shared/schema";
 import type { ScorePoint } from "@shared/weekly-review";
+import type { WeeklyLookback } from "@shared/weekly-lookback";
 import { formatDateNice, getDayOfWeek, getWeekStartDate } from "@/lib/dateUtils";
 import OutlookConnect from "@/components/outlook-connect";
-import Sparkline from "@/components/sparkline";
 import HydrationBar from "@/components/hydration-bar";
 import { NO_TAGS, TagToggle, TaskTagControl, TaskTagFields, hasTags } from "@/components/task-tags";
 
@@ -25,6 +25,7 @@ export default function DayView({ date }: DayViewProps) {
   const { data: items } = useQuery<DailyItem[]>({ queryKey: ["/api/daily-items", date] });
   const { data: weeklyGoals } = useQuery<WeeklyGoal[]>({ queryKey: ["/api/weekly-goals", weekStartDate] });
   const { data: goalTrends } = useQuery<(NinetyDayGoal & { history: ScorePoint[] })[]>({ queryKey: ["/api/ninety-day-goals/trends", date] });
+  const { data: lookback } = useQuery<WeeklyLookback>({ queryKey: ["/api/weekly-lookback", weekStartDate] });
   const { data: fresh } = useQuery<{ freshStart: boolean }>({ queryKey: ["/api/fresh-start", date] });
 
   const [goalsOpen, setGoalsOpen] = useState(false);
@@ -37,6 +38,7 @@ export default function DayView({ date }: DayViewProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/daily-items", date] });
       queryClient.invalidateQueries({ queryKey: ["/api/weekly-goals", weekStartDate] });
+      queryClient.invalidateQueries({ queryKey: ["/api/weekly-lookback", weekStartDate] });
     },
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -52,6 +54,7 @@ export default function DayView({ date }: DayViewProps) {
       setNewTags(NO_TAGS);
       setNewTagsOpen(false);
       queryClient.invalidateQueries({ queryKey: ["/api/daily-items", date] });
+      queryClient.invalidateQueries({ queryKey: ["/api/weekly-lookback", weekStartDate] });
     },
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -292,12 +295,25 @@ export default function DayView({ date }: DayViewProps) {
         {(goalTrends && goalTrends.length > 0) && (
           <div className="bg-card rounded-lg border p-3 space-y-2" data-testid="ninety-day-trends">
             <p className="font-serif text-base">90-day goals</p>
-            {goalTrends.map((g) => (
-              <div key={g.id} className="flex items-center justify-between gap-3 py-1" data-testid={`trend-${g.id}`}>
-                <span className="text-sm leading-snug min-w-0">{g.goalText}</span>
-                <Sparkline history={g.history} className="shrink-0" />
-              </div>
-            ))}
+            {goalTrends.map((g) => {
+              // This week's tasks tagged to the goal. No tasks yet reads as unset, not 0%.
+              const progress = lookback?.goals.find((x) => x.id === g.id);
+              return (
+                <div key={g.id} className="space-y-1.5 py-1" data-testid={`trend-${g.id}`}>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-sm leading-snug min-w-0">{g.goalText}</span>
+                    {progress && progress.total > 0 && (
+                      <span className="text-xs text-muted-foreground tabular-nums shrink-0" data-testid={`text-trend-${g.id}`}>
+                        {progress.done}/{progress.total}
+                      </span>
+                    )}
+                  </div>
+                  {progress && progress.total > 0
+                    ? <Progress value={progress.pct} className="h-2.5 bg-muted" aria-label={`${g.goalText}: ${progress.done} of ${progress.total} tasks done this week`} />
+                    : lookback && <p className="text-xs text-muted-foreground" data-testid={`text-trend-empty-${g.id}`}>No tasks set this week</p>}
+                </div>
+              );
+            })}
           </div>
         )}
 
